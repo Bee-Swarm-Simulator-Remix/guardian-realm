@@ -224,8 +224,8 @@ export default class UpdateCommand extends Command {
                 new StringSelectMenuBuilder()
                     .addOptions(
                         new StringSelectMenuOptionBuilder({
-                            label: "Latest Unstable",
-                            description: "main • Unstable versions may break things unexpectedly",
+                            label: "Latest",
+                            description: "Pull the newest code changes. from GitHub.",
                             value: "unstable",
                             default: !updateAvailable
                         }).setEmoji("⚒️")
