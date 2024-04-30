@@ -157,8 +157,7 @@ export default class HelpCommand extends Command {
                 messageOptions: {
                     components: [
                         new ActionRowBuilder<ButtonBuilder>().addComponents(
-                                .setURL(GITHUB_URL)
-                                .setLabel("GitHub"),
+                                )
                             new ButtonBuilder()
                                 .setStyle(ButtonStyle.Link)
                                 .setEmoji("🌍")
