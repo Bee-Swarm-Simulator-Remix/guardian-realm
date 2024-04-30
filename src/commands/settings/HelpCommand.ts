@@ -38,7 +38,7 @@ import Command, {
 import { GatewayEventListener } from "../../decorators/GatewayEventListener";
 import { log } from "../../utils/Logger";
 import Pagination from "../../utils/Pagination";
-import { WEBSITE_URL } from "../../utils/links";
+import { DOCS_URL, GITHUB_URL, WEBSITE_URL } from "../../utils/links";
 import { forceGetPermissionNames, getComponentEmojiResolvable } from "../../utils/utils";
 
 export interface CommandInfo {
@@ -157,16 +157,6 @@ export default class HelpCommand extends Command {
                 messageOptions: {
                     components: [
                         new ActionRowBuilder<ButtonBuilder>().addComponents(
-                            new ButtonBuilder()
-                                .setStyle(ButtonStyle.Link)
-                                .setEmoji("📘")
-                                .setURL(DOCS_URL)
-                                .setLabel("Documentation"),
-                            new ButtonBuilder()
-                                .setStyle(ButtonStyle.Link)
-                                .setEmoji(
-                                    getComponentEmojiResolvable(this.client, "github") ?? "☄️"
-                                )
                                 .setURL(GITHUB_URL)
                                 .setLabel("GitHub"),
                             new ButtonBuilder()
