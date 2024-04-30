@@ -18,3 +18,5 @@
 */
 
 export const WEBSITE_URL = "https://bssr.xyz/";
+export const DOCS_URL = "";
+export const GITHUB_URL = "";
