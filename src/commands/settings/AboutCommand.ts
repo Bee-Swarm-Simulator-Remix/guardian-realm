@@ -48,7 +48,7 @@ export default class AboutCommand extends Command {
                         },
                         {
                             name: "Author",
-                            value: `[ninsacc]{https://discord.com/users/569352110991343616/}`,
+                            value: `[ninsacc](https://discord.com/users/569352110991343616/)`,
                             inline: true
                         },
                         {
