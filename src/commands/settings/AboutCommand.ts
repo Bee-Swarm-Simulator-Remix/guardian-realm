@@ -34,7 +34,7 @@ export default class AboutCommand extends Command {
                 {
                     author: {
                         icon_url: this.client.user?.displayAvatarURL(),
-                        name: "SudoBot"
+                        name: "Guardian Realm"
                     },
                     description: `
                         __**A bot made by Bee Swarm Simulator Remix.**__.\n
