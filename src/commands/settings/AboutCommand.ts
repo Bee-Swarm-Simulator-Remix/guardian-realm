@@ -37,9 +37,7 @@ export default class AboutCommand extends Command {
                         name: "SudoBot"
                     },
                     description: `
-                        __**A free and open source Discord moderation bot**__.\n
-                        This bot is free software, and you are welcome to redistribute it under certain conditions.
-                        See the [GNU Affero General Public License v3](https://www.gnu.org/licenses/agpl-3.0.en.html) for more detailed information.
+                        __**A bot made by Bee Swarm Simulator Remix.**__.\n
                     `.replaceAll(/\n([ \t]+)/gm, "\n"),
                     color: 0x007bff,
                     fields: [
@@ -49,28 +47,18 @@ export default class AboutCommand extends Command {
                             inline: true
                         },
                         {
-                            name: "Source Code",
-                            value: `[GitHub](${this.metadata.repository.url})`,
-                            inline: true
-                        },
-                        {
-                            name: "Licensed Under",
-                            value: "[GNU Affero General Public License v3](https://www.gnu.org/licenses/agpl-3.0.en.html)",
-                            inline: true
-                        },
-                        {
                             name: "Author",
-                            value: `[${this.metadata.author.name}](${this.metadata.author.url})`,
+                            value: `[ninsacc]{https://discord.com/users/569352110991343616/}`,
                             inline: true
                         },
                         {
                             name: "Support",
-                            value: "rakinar2@onesoftnet.eu.org",
+                            value: "https://discord.gg/je8EvnXGz2/",
                             inline: true
                         }
                     ],
                     footer: {
-                        text: `Copyright © OSN Developers 2022-${new Date().getFullYear()}. All rights reserved.`
+                        text: `Copyright © Bee Swarm Simulator Remix. All rights reserved.`
                     }
                 }
             ]
