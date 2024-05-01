@@ -37,7 +37,7 @@ export default class AboutCommand extends Command {
                         name: "Guardian Realm"
                     },
                     description: `
-                        __**A bot made by Bee Swarm Simulator Remix.**__.\n
+                        __**A bot made by Bee Swarm Simulator Remix**__.\n
                     `.replaceAll(/\n([ \t]+)/gm, "\n"),
                     color: 0x007bff,
                     fields: [
