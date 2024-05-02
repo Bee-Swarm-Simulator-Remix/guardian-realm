@@ -1,33 +1,34 @@
-import { CommandMessage, CommandReturn, EmbedBuilder, Colors } from "discord.js";
+import { Message, Guild, TextChannel } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
 export default class ListServersCommand extends Command {
-    public readonly name = "guilds";
+    public readonly name = "listservers";
+    public readonly systemAdminOnly = true;
     public readonly description = "List all servers the bot is in.";
 
     constructor(client: Client<true>) {
         super(client);
     }
 
-    async execute(message: CommandMessage): Promise<CommandReturn> {
+    async execute(message: Message): Promise<void> {
         await this.deferIfInteraction(message);
 
-        const guilds = this.client.guilds.cache.array();
+        // Get all the guilds the bot is in
+        const guilds = this.client.guilds.cache.values();
 
-        const guildInfo = guilds.map(guild => {
+        // Create an array to hold information about each guild
+        const guildInfo = Array.from(guilds).map(guild => {
             return {
                 name: guild.name,
                 id: guild.id
             };
         });
 
-        const embed = new EmbedBuilder()
-            .setTitle("List of Guilds")
-            .setDescription(guildInfo.map(info => `**${info.name}** - \`${info.id}\``).join("\n"))
-            .setColor(Colors.Blue)
-            .setTimestamp();
+        // Create a formatted string containing guild information
+        const guildList = guildInfo.map(info => `**${info.name}** - \`${info.id}\``).join("\n");
 
-        await this.deferredReply(message, { embeds: [embed] });
+        // Send the guild list to the user
+        await message.channel.send(`List of Guilds:\n${guildList}`);
     }
 }
