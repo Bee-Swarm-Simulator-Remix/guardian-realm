@@ -1,4 +1,4 @@
-import { CommandInteraction, Guild } from "discord.js";
+import { CommandInteraction, Guild, TextBasedChannels } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
@@ -41,7 +41,7 @@ export default class ServerInviteCommand extends Command {
     }
 
     async generateInvite(guild: Guild): Promise<string> {
-        const channel = guild.systemChannel ?? guild.channels.cache.find(ch => ch.type === "text");
+        const channel = this.getFirstTextChannel(guild);
         if (!channel) throw new Error("No suitable channel found to create invite.");
 
         const invite = await channel.createInvite({
@@ -50,5 +50,18 @@ export default class ServerInviteCommand extends Command {
         });
 
         return invite.url;
+    }
+
+    private getFirstTextChannel(guild: Guild): TextBasedChannels {
+        const systemChannel = guild.systemChannel;
+        if (systemChannel && systemChannel.isText()) {
+            return systemChannel;
+        }
+
+        const textChannel = guild.channels.cache.find(
+            ch => ch.type === "GUILD_TEXT"
+        ) as TextBasedChannels;
+
+        return textChannel;
     }
 }
