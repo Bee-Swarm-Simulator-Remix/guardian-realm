@@ -55,6 +55,11 @@ export default class AboutCommand extends Command {
                             name: "Support",
                             value: "https://discord.gg/je8EvnXGz2/",
                             inline: true
+                        },
+                        {
+                            name: "Admins of this bot",
+                            value: "[ninsacc](https://discord.com/users/569352110991343616/), [teranimates](https://discord.com/users/628162114661646346/), [bacle](https://discord.com/users/1186616559507099688), [bacon](https://discord.com/users/955932266855546900)",
+                            inline: true
                         }
                     ],
                     footer: {
