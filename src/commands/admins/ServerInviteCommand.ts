@@ -1,4 +1,4 @@
-import { CommandInteraction, Guild, TextBasedChannel } from "discord.js";
+import { CommandInteraction, Guild, TextBasedChannel, Invite } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
@@ -21,7 +21,7 @@ export default class ServerInviteCommand extends Command {
     }
 
     async execute(interaction: CommandInteraction): Promise<void> {
-        await this.deferIfInteraction(interaction);
+        await interaction.deferReply({ ephemeral: true });
 
         const guildId = interaction.options.getString("guildId", true);
         const guild = this.client.guilds.cache.get(guildId);
