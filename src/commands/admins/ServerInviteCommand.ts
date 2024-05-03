@@ -3,7 +3,7 @@ import Command from "../../core/Command";
 
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
-    public readonly systemAdminOnly = true;
+    public readonly serverAdminOnly = true;
     public readonly description = "Get an invite to a specific server from the guild ID.";
 
     async execute(interaction: CommandInteraction): Promise<void> {
@@ -17,7 +17,7 @@ export default class ServerInviteCommand extends Command {
             return;
         }
 
-        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GUILD_TEXT);
+        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText);
 
         if (!systemChannel) {
             await this.error(interaction, "Unable to find a suitable channel to create an invite.");
