@@ -1,6 +1,5 @@
 import { ChatInputCommandInteraction, TextChannel, ChannelType } from "discord.js";
-import Client from "../../core/Client";
-import Command, type { CommandReturn } from "../../core/Command";
+import Command, { type CommandReturn } from "../../core/Command";
 
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
@@ -18,7 +17,7 @@ export default class ServerInviteCommand extends Command {
             return;
         }
 
-        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GUILD_TEXT) as TextChannel;
+        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText) as TextChannel;
         if (!systemChannel) {
             await this.error(interaction, "Unable to find a suitable channel to create an invite.");
             return;
