@@ -45,8 +45,9 @@ export default class UpdateCommand extends Command {
     public readonly permissions = [];
     public readonly description = "Updates the bot to the latest version.";
     public readonly systemAdminOnly = true;
-    protected readonly UNSTABLE_DOWNLOAD_URL = "https://github.com/bee-swarm-simulator-remix/public-bssr-bot/archive/refs/heads/main.zip";
-    public updateChannel?: "unstable";
+    protected readonly RELEASE_API_URL = "https://api.github.com/repos//Bee-Swarm-Simulator-Remix/guardian-realm/releases/latest";
+    protected readonly UNSTABLE_DOWNLOAD_URL = "https://github.com/Bee-Swarm-Simulator-Remix/guardian-realm/archive/refs/heads/main.zip";
+    public updateChannel?: "stable" | "unstable";
     public readonly beta = true;
 
     async execute(message: CommandMessage): Promise<CommandReturn> {
@@ -66,8 +67,9 @@ export default class UpdateCommand extends Command {
             const response = await axios.get(this.RELEASE_API_URL);
             const tagName = response.data?.tag_name;
             const version = tagName.replace(/^v/, "");
+            const stableDownloadURL = `https://github.com/onesoft-sudo/sudobot/archive/refs/tags/${tagName}.zip`;
             const updateAvailable = semver.gt(version, this.client.metadata.data.version);
-            this.updateChannel = "unstable";
+            this.updateChannel = updateAvailable ? "stable" : "unstable";
 
             await this.deferredReply(message, {
                 embeds: [
@@ -174,6 +176,7 @@ export default class UpdateCommand extends Command {
 
                 try {
                     success = await this.update({
+                        stableDownloadURL,
                         version
                     });
                 } catch {
@@ -205,7 +208,7 @@ export default class UpdateCommand extends Command {
 
                 const updateChannel = interaction.component.options[0].value;
 
-                if (!["unstable"].includes(updateChannel)) {
+                if (!["stable", "unstable"].includes(updateChannel)) {
                     return;
                 }
 
@@ -224,8 +227,14 @@ export default class UpdateCommand extends Command {
                 new StringSelectMenuBuilder()
                     .addOptions(
                         new StringSelectMenuOptionBuilder({
-                            label: "Latest",
-                            description: "Pull the newest code changes. from GitHub.",
+                            label: "Latest Stable",
+                            description: `${version} • ${updateAvailable ? "Update available" : "Up to date"}`,
+                            value: "stable",
+                            default: updateAvailable
+                        }).setEmoji("⚙"),
+                        new StringSelectMenuOptionBuilder({
+                            label: "Latest Unstable",
+                            description: "main • Unstable versions may break things unexpectedly",
                             value: "unstable",
                             default: !updateAvailable
                         }).setEmoji("⚒️")
@@ -251,14 +260,14 @@ export default class UpdateCommand extends Command {
         ];
     }
 
-    downloadUpdate({ version }: { version: string }): Promise<{
+    downloadUpdate({ stableDownloadURL, version }: { stableDownloadURL: string; version: string }): Promise<{
         filePath?: string;
         storagePath?: string;
         error?: Error;
     }> {
-        const url = this.UNSTABLE_DOWNLOAD_URL;
+        const url = this.updateChannel === "stable" ? stableDownloadURL : this.UNSTABLE_DOWNLOAD_URL;
         const tmpdir = sudoPrefix("tmp", true);
-        const dirname = `update-unstable`;
+        const dirname = `update-${this.updateChannel === "stable" ? version : "unstable"}`;
 
         try {
             return downloadFile({
@@ -290,7 +299,7 @@ export default class UpdateCommand extends Command {
     }
 
     async unpackUpdate({ filePath, storagePath, version }: { version: string; filePath: string; storagePath: string }) {
-        const dirname = `update-unstable`;
+        const dirname = `update-${this.updateChannel === "stable" ? version : "unstable"}`;
         const unpackedDirectory = join(storagePath!, dirname);
 
         try {
@@ -357,7 +366,7 @@ export default class UpdateCommand extends Command {
             for (const installFile of installFiles) {
                 const src = path.join(
                     unpackedDirectory,
-                    `sudobot-main`,
+                    `sudobot-${this.updateChannel === "stable" ? version : "main"}`,
                     installFile
                 );
                 const dest = path.join(__dirname, "../../../", installFile);
@@ -528,7 +537,7 @@ export default class UpdateCommand extends Command {
         return true;
     }
 
-    async update({ version }: { version: string }) {
+    async update({ stableDownloadURL, version }: { stableDownloadURL: string; version: string }) {
         const updateChannel = this.updateChannel;
 
         if (!updateChannel) {
@@ -573,7 +582,7 @@ export default class UpdateCommand extends Command {
             return true;
         }
 
-        const { error: downloadError, filePath, storagePath } = await this.downloadUpdate({ version });
+        const { error: downloadError, filePath, storagePath } = await this.downloadUpdate({ stableDownloadURL, version });
 
         if (downloadError) {
             return false;
