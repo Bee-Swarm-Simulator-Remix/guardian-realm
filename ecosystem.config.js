@@ -9,7 +9,7 @@ const logDirectoryExists = existsSync(resolve(__dirname, "logs"));
 const config = {
     apps: [
         {
-            name: "sudobot",
+            name: "guardian-realm",
             script: "build/index.js",
             env_production: {
                 NODE_ENV: "production"
