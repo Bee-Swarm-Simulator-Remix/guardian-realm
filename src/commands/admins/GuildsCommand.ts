@@ -29,6 +29,6 @@ export default class ListServersCommand extends Command {
         const guildList = guildInfo.map(info => `**${info.name}** - \`${info.id}\``).join("\n");
 
         // Send the guild list to the user
-        await message.channel.send(`List of Guilds:\n${guildList}`);
+        await message.reply(`List of Guilds:\n${guildList}`);
     }
 }
