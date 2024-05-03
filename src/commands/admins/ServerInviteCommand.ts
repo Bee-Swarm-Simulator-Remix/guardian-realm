@@ -15,7 +15,7 @@ export default class ServerInviteCommand extends Command {
         await interaction.deferReply({ ephemeral: true });
 
         // Get the guild ID from the interaction options
-        const guildId = interaction.options.getString("guildid", true);
+        const guildId = interaction.options.getString("guildId", true);
 
         // Get the guild
         const guild = this.client.guilds.cache.get(guildId);
@@ -26,10 +26,10 @@ export default class ServerInviteCommand extends Command {
         }
 
         // Find a suitable text channel to create an invite
-        const systemChannel = guild.systemChannel || guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText) as TextChannel;
+        const systemChannel = guild.systemChannel || guild.channels.cache.find((ch) => ch.type === 'GUILD_TEXT') as TextChannel;
 
         if (!systemChannel) {
-            await interaction.followUp("Unable to find a suitable text channel to create an invite.");
+            await interaction.followUp("Unable to find a suitable channel to create an invite.");
             return;
         }
 
