@@ -1,39 +1,47 @@
-import { CommandInteraction, ChannelType, Guild } from "discord.js";
-import Command from "../../core/Command";
+import { CommandInteraction, Guild, TextChannel, CommandInteractionOptionResolver } from "discord.js";
+import { BaseCommand } from "./BaseCommand";
 
-export default class ServerInviteCommand extends Command {
-    public readonly name = "serverinvite";
-    public readonly serverAdminOnly = true;
-    public readonly description = "Get an invite to a specific server from the guild ID.";
+export class ServerInviteCommand extends BaseCommand {
+    constructor() {
+        super({
+            name: "serverinvite",
+            description: "Get an invite to a specific server by providing its ID.",
+            options: [
+                {
+                    name: "guildId",
+                    description: "The ID of the guild to get the invite for.",
+                    type: "STRING",
+                    required: true
+                }
+            ]
+        });
+    }
 
-    async execute(interaction: CommandInteraction): Promise<void> {
-        try {
-            await interaction.deferReply();
+    public readonly systemAdminOnly = true;
+    async execute(interaction: CommandInteraction, options: CommandInteractionOptionResolver): Promise<void> {
+        await this.deferIfInteraction(interaction);
 
-            const guildId = interaction.options.getString("guildId", true);
-            const guild = this.client.guilds.cache.get(guildId);
+        const guildId = options.getString("guildId", true);
+        const guild = this.client.guilds.cache.get(guildId);
+        if (!guild) {
+            await this.error(interaction, "Invalid guild ID provided.");
+            return;
+        }
 
-            if (!guild) {
-                await interaction.editReply("Invalid guild ID provided.");
-                return;
-            }
+        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === "GUILD_TEXT");
+        if (!systemChannel) {
+            await this.error(interaction, "Unable to find a suitable channel to create an invite.");
+            return;
+        }
 
-            const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText);
-
-            if (!systemChannel) {
-                await interaction.editReply("Unable to find a suitable channel to create an invite.");
-                return;
-            }
-
+        if (systemChannel && systemChannel instanceof TextChannel) {
             const invite = await systemChannel.createInvite({
-                unique: true,
-                maxAge: 86400 // 24 hours
+                // Invite options
             });
 
-            await interaction.editReply(`Here is the invite to the server: ${invite.url}`);
-        } catch (error) {
-            console.error("Error creating invite:", error);
-            await interaction.editReply("Failed to create an invite to the server.");
+            await this.success(interaction, `Here is the invite to the server: ${invite.url}`);
+        } else {
+            await this.error(interaction, "Failed to create an invite to the server.");
         }
     }
 }
