@@ -6,6 +6,8 @@ export default class ServerInviteCommand extends Command {
     public readonly systemAdminOnly = true;
     public readonly description = "Get an invite link to a server by ID.";
 
+    public readonly supportsLegacy = false;
+
     async execute(interaction: ChatInputCommandInteraction): Promise<CommandReturn> {
         await interaction.deferReply();
 
