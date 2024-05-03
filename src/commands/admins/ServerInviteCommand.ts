@@ -1,4 +1,4 @@
-import { CommandInteraction, TextChannel } from "discord.js";
+import { CommandInteraction, TextChannel, ChannelType } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
@@ -12,28 +12,27 @@ export default class ServerInviteCommand extends Command {
     }
 
     async execute(interaction: CommandInteraction): Promise<void> {
+        await this.deferIfInteraction(interaction);
+
+        const guildId = interaction.options.getString("guildId", true);
+        const guild = this.client.guilds.cache.get(guildId);
+
+        if (!guild) {
+            await this.error(interaction, "Invalid guild ID provided.");
+            return;
+        }
+
+        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GUILD_TEXT) as TextChannel;
+        if (!systemChannel) {
+            await this.error(interaction, "Unable to find a suitable channel to create an invite.");
+            return;
+        }
+
         try {
-            await interaction.deferReply();
-
-            const guildId = interaction.options.getString("guildId", true);
-            const guild = this.client.guilds.cache.get(guildId);
-
-            if (!guild) {
-                await interaction.editReply("Invalid guild ID provided.");
-                return;
-            }
-
-            const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === "GUILD_TEXT");
-            if (!systemChannel || !(systemChannel instanceof TextChannel)) {
-                await interaction.editReply("Unable to find a suitable channel to create an invite.");
-                return;
-            }
-
             const invite = await systemChannel.createInvite({ unique: true });
-            await interaction.editReply(`Here is the invite to the server: ${invite.url}`);
+            await this.success(interaction, `Here is the invite to the server: ${invite.url}`);
         } catch (error) {
-            console.error("Error creating server invite:", error);
-            await interaction.editReply("Failed to create an invite to the server.");
+            await this.error(interaction, "Failed to create an invite to the server.");
         }
     }
 }
