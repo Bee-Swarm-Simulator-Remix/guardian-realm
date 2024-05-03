@@ -1,18 +1,14 @@
-import { CommandInteraction, TextChannel, ChannelType } from "discord.js";
+import { ChatInputCommandInteraction, TextChannel, ChannelType } from "discord.js";
 import Client from "../../core/Client";
-import Command from "../../core/Command";
+import Command, type { CommandReturn } from "../../core/Command";
 
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
     public readonly description = "Get an invite link to a server by ID.";
 
-    constructor(client: Client<true>) {
-        super(client);
-    }
-
-    async execute(interaction: CommandInteraction): Promise<void> {
-        await this.deferIfInteraction(interaction);
+    async execute(interaction: ChatInputCommandInteraction): Promise<CommandReturn> {
+        await interaction.deferReply();
 
         const guildId = interaction.options.getString("guildId", true);
         const guild = this.client.guilds.cache.get(guildId);
