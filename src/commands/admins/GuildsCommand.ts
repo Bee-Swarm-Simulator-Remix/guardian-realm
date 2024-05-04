@@ -30,7 +30,7 @@ export default class ListServersCommand extends Command {
 
         // Send the guild list to the user
         await this.deferredReply(message, {    
-        content: 'List of Guilds:\n${guildList}'
+        content: 'List of Guilds:\n$' .. {guildList}
         });
     }
 }
