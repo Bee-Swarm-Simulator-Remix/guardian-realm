@@ -1,33 +1,31 @@
-import { ChatInputCommandInteraction, Message, TextChannel, ChannelType } from "discord.js";
+import { ChatInputCommandInteraction, Message, TextChannel, ChannelType, Guild } from "discord.js";
 import Command, { type CommandReturn, type BasicCommandContext } from "../../core/Command";
-
-// Define the IDs of the blacklisted servers
-const BLACKLISTED_SERVER_IDS = ["911987536379912193", "1216386140265906227"];
 
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
-    public readonly description = "Get an invite link to a server by ID.";
+    public readonly description = "Get an invite link to a server by ID or name.";
 
     async execute(message: Message | ChatInputCommandInteraction, context: BasicCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
 
         if (context.isLegacy && !context.args[0]) {
-            return void this.error(message, "You must specify a guild ID!");
+            return void this.error(message, "You must specify a guild ID or name!");
         }
 
-        const guildId = context.isLegacy ? context.args[0] : context.options.getString("guildId", true);
+        let guildIdOrName = context.isLegacy ? context.args[0] : context.options.getString("guildIdOrName", true);
         
-        // Check if the guild ID is in the blacklist
-        if (BLACKLISTED_SERVER_IDS.includes(guildId)) {
-            await this.error(message, "You can't obtain an invite for this server.");
-            return;
+        let guild: Guild | undefined;
+        if (!isNaN(Number(guildIdOrName))) {
+            // If the input is a number, consider it as a guild ID
+            guild = this.client.guilds.cache.get(guildIdOrName);
+        } else {
+            // Otherwise, try to find the guild by name
+            guild = this.client.guilds.cache.find(guild => guild.name.toLowerCase() === guildIdOrName.toLowerCase());
         }
-
-        const guild = this.client.guilds.cache.get(guildId);
 
         if (!guild) {
-            await this.error(message, "Invalid guild ID provided.");
+            await this.error(message, "Invalid guild ID or name provided.");
             return;
         }
 
