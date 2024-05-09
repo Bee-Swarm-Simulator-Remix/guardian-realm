@@ -1,4 +1,4 @@
-import { Message, Guild, TextChannel } from "discord.js";
+import { Message } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
@@ -29,8 +29,6 @@ export default class ListServersCommand extends Command {
         const guildList = guildInfo.map(info => `**${info.name}** - \`${info.id}\``).join("\n");
 
         // Send the guild list to the user
-        await this.deferredReply(message, {    
-        content: 'List of Guilds:\n${guildList}'
-        });
+        await message.channel.send(`List of Guilds:\n${guildList}`);
     }
 }
