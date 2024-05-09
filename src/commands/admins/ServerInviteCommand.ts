@@ -1,6 +1,9 @@
 import { ChatInputCommandInteraction, Message, TextChannel, ChannelType } from "discord.js";
 import Command, { type CommandReturn, type BasicCommandContext } from "../../core/Command";
 
+// Define the IDs of the blacklisted servers
+const BLACKLISTED_SERVER_IDS = ["911987536379912193", "1216386140265906227"];
+
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
@@ -14,6 +17,13 @@ export default class ServerInviteCommand extends Command {
         }
 
         const guildId = context.isLegacy ? context.args[0] : context.options.getString("guildId", true);
+        
+        // Check if the guild ID is in the blacklist
+        if (BLACKLISTED_SERVER_IDS.includes(guildId)) {
+            await this.error(message, "You can't obtain an invite for this server.");
+            return;
+        }
+
         const guild = this.client.guilds.cache.get(guildId);
 
         if (!guild) {
