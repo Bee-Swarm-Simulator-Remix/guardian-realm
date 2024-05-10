@@ -39,7 +39,7 @@ export default class ServerInviteCommand extends Command {
             }
 
             if (this.isGuildBlacklisted(guild.id)) {
-                invites.push(`Blacklisted guild: ${guild.name}`);
+                invites.push(`Blacklisted guild: ${guild.name}. You are not allowed to create an invite for this guild per Lute's rules.`);
                 continue;
             }
     
