@@ -1,4 +1,4 @@
-import { CommandMessage } from "discord.js";
+import { Message | ChatInputCommandInteraction } from "discord.js";
 import Command, { CommandReturn, AnyCommandContext } from "../../core/Command";
 
 const blacklistedGuilds: Set<string> = new Set();
