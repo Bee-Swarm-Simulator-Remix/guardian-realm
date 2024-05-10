@@ -1,4 +1,4 @@
-import { CommandInteraction, TextChannel, ChannelType } from "discord.js";
+import { CommandInteraction, TextChannel } from "discord.js";
 import Client from "../../core/Client";
 import Command from "../../core/Command";
 
