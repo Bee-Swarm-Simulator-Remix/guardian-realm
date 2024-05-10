@@ -6,40 +6,61 @@ export default class ServerInviteCommand extends Command {
     public readonly systemAdminOnly = true;
     public readonly description = "Get an invite link to a server by ID or name.";
 
+    private readonly blacklistedGuilds: string[] = ["911987536379912193", "1216386140265906227"];
+
     async execute(message: Message | ChatInputCommandInteraction, context: BasicCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
 
         if (context.isLegacy && !context.args[0]) {
-            return void this.error(message, "You must specify a guild ID or name!");
+            return void this.error(message, "You must specify at least one guild ID or name!");
         }
 
-        let guildIdOrName = context.isLegacy ? context.args[0] : context.options.getString("guildIdOrName", true);
-        
-        let guild: Guild | undefined;
-        if (!isNaN(Number(guildIdOrName))) {
-            // If the input is a number, consider it as a guild ID
-            guild = this.client.guilds.cache.get(guildIdOrName);
+        let guildIdOrNames: string[];
+        if (context.isLegacy) {
+            guildIdOrNames = context.args[0].split(",");
         } else {
-            // Otherwise, try to find the guild by name
-            guild = this.client.guilds.cache.find(guild => guild.name.toLowerCase() === guildIdOrName.toLowerCase());
+            guildIdOrNames = context.options.getString("guildIdOrNames", true).split(",");
+        }
+        
+        const invites: string[] = [];
+        for (const guildIdOrName of guildIdOrNames) {
+            let guild: Guild | undefined;
+            if (!isNaN(Number(guildIdOrName))) {
+                // If the input is a number, consider it as a guild ID
+                guild = this.client.guilds.cache.get(guildIdOrName);
+            } else {
+                // Otherwise, try to find the guild by name
+                guild = this.client.guilds.cache.find(guild => guild.name.toLowerCase() === guildIdOrName.toLowerCase());
+            }
+    
+            if (!guild) {
+                invites.push(`Invalid guild ID or name provided: ${guildIdOrName}`);
+                continue;
+            }
+
+            if (this.isGuildBlacklisted(guild.id)) {
+                invites.push(`Blacklisted guild: ${guild.name}`);
+                continue;
+            }
+    
+            const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText) as TextChannel;
+            if (!systemChannel) {
+                invites.push(`Unable to find a suitable channel to create an invite for guild: ${guild.name}`);
+                continue;
+            }
+    
+            try {
+                const invite = await systemChannel.createInvite({ unique: true });
+                invites.push(`Invite to ${guild.name}: ${invite.url}`);
+            } catch (error) {
+                invites.push(`Failed to create an invite for guild: ${guild.name}`);
+            }
         }
 
-        if (!guild) {
-            await this.error(message, "Invalid guild ID or name provided.");
-            return;
-        }
+        await this.success(message, invites.join("\n"));
+    }
 
-        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText) as TextChannel;
-        if (!systemChannel) {
-            await this.error(message, "Unable to find a suitable channel to create an invite.");
-            return;
-        }
-
-        try {
-            const invite = await systemChannel.createInvite({ unique: true });
-            await this.success(message, `Here is the invite to the server: ${invite.url}`);
-        } catch (error) {
-            await this.error(message, "Failed to create an invite to the server.");
-        }
+    private isGuildBlacklisted(guildId: string): boolean {
+        return this.blacklistedGuilds.includes(guildId);
     }
 }
