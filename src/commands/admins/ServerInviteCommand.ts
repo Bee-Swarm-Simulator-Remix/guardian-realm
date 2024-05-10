@@ -1,47 +1,59 @@
-import { CommandMessage } from "discord.js";
-import Command, { CommandReturn, AnyCommandContext } from "../../core/Command";
-
-// Define a list of blacklisted guild IDs
-const blacklistedGuilds = ["911987536379912193", "1216386140265906227", "1238351985627893830"];
-
+import { ChatInputCommandInteraction, Message, TextChannel, ChannelType, Guild } from "discord.js";
+import Command, { type CommandReturn, type BasicCommandContext } from "../../core/Command";
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
-    public readonly description = "Get an invite link to a server by ID.";
-
-    async execute(message: CommandMessage, context: AnyCommandContext): Promise<CommandReturn> {
+    public readonly description = "Get an invite link to a server by ID or name.";
+    private readonly blacklistedGuilds: string[] = ["911987536379912193", "1216386140265906227"];
+    async execute(message: Message | ChatInputCommandInteraction, context: BasicCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
-
         if (context.isLegacy && !context.args[0]) {
-            return void this.error(message, "You must specify a guild ID!");
+            return void this.error(message, "You must specify at least one guild ID or name!");
         }
-
-        const guildId = context.isLegacy ? context.args[0] : context.options.getString("guildId", true);
-
-        // Check if the guild is blacklisted
-        if (blacklistedGuilds.includes(guildId)) {
-            await this.error(message, "Sorry, this server is blacklisted and you cannot get an invite.");
-            return;
+        let guildIdOrNames: string[];
+        if (context.isLegacy) {
+            guildIdOrNames = context.args[0].split(",");
+        } else {
+            guildIdOrNames = context.options.getString("guildIdOrNames", true).split(",");
         }
+        
+        const invites: string[] = [];
+        for (const guildIdOrName of guildIdOrNames) {
+            let guild: Guild | undefined;
+            if (!isNaN(Number(guildIdOrName))) {
+                // If the input is a number, consider it as a guild ID
+                guild = this.client.guilds.cache.get(guildIdOrName);
+            } else {
+                // Otherwise, try to find the guild by name
+                guild = this.client.guilds.cache.find(guild => guild.name.toLowerCase() === guildIdOrName.toLowerCase());
+            }
+    
+            if (!guild) {
+                invites.push(`<:error:1216024851744161902> Invalid guild ID or name provided: ${guildIdOrName}`);
+                continue;
+            }
 
-        const guild = this.client.guilds.cache.get(guildId);
+            if (this.isGuildBlacklisted(guild.id)) {
+                invites.push(`<:error:1216024851744161902> The guild you have tried to create an invite for, ${guild.name}, is a guild exempt from getting an invite as per Lute's rules.`);
+                continue;
+            }
 
-        if (!guild) {
-            await this.error(message, "Invalid guild ID provided.");
-            return;
+            const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText) as TextChannel;
+            if (!systemChannel) {
+                invites.push(`<:error:1216024851744161902> Unable to find a suitable channel to create an invite for guild: ${guild.name}`);
+                continue;
+            }
+    
+            try {
+                const invite = await systemChannel.createInvite({ unique: true });
+                invites.push(`Invite to ${guild.name}: ${invite.url}`);
+            } catch (error) {
+                invites.push(`<:error:1216024851744161902> Failed to create an invite for guild: ${guild.name}`);
+            }
         }
-
-        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === "GUILD_TEXT");
-        if (!systemChannel) {
-            await this.error(message, "Unable to find a suitable channel to create an invite.");
-            return;
-        }
-
-        try {
-            const invite = await systemChannel.createInvite({ unique: true });
-            await this.success(message, `Here is the invite to the server: ${invite.url}`);
-        } catch (error) {
-            await this.error(message, "Failed to create an invite to the server.");
-        }
+        await this.success(message, invites.join("\n"));
+    }
+    private isGuildBlacklisted(guildId: string): boolean {
+        return this.blacklistedGuilds.includes(guildId);
     }
 }
