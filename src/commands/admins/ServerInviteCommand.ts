@@ -4,7 +4,7 @@ export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
     public readonly description = "Get an invite link to a server by ID or name.";
-    private readonly blacklistedGuilds: string[] = ["911987536379912193", "1216386140265906227"];
+    private readonly blacklistedGuilds: string[] = ["911987536379912193", "1216386140265906227", "1238351985627893830"];
     async execute(message: Message | ChatInputCommandInteraction, context: BasicCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
         if (context.isLegacy && !context.args[0]) {
