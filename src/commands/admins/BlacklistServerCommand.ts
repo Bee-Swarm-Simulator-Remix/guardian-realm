@@ -1,12 +1,12 @@
 import { Message | ChatInputCommandInteraction } from "discord.js";
 import Command, { CommandReturn, AnyCommandContext } from "../../core/Command";
 
-const blacklistedGuilds: Set<string> = new Set();
-
 export default class BlacklistServerCommand extends Command {
     public readonly name = "blacklistserver";
     public readonly systemAdminOnly = true;
     public readonly description = "Blacklist a server by ID.";
+
+    const blacklistedGuilds: Set<string> = new Set();
 
     async execute(message: CommandMessage, context: AnyCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
