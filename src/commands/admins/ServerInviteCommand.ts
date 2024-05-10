@@ -1,15 +1,15 @@
-import { ChatInputCommandInteraction, Message, TextChannel, ChannelType } from "discord.js";
-import Command, { CommandReturn, BasicCommandContext } from "../../core/Command";
+import { CommandMessage } from "discord.js";
+import Command, { CommandReturn, AnyCommandContext } from "../../core/Command";
 
-// Import the blacklistedGuilds set from the blacklist server command
-import { blacklistedGuilds } from "./BlacklistServerCommand";
+// Define a list of blacklisted guild IDs
+const blacklistedGuilds = ["911987536379912193", "1216386140265906227", "1238351985627893830"];
 
 export default class ServerInviteCommand extends Command {
     public readonly name = "serverinvite";
     public readonly systemAdminOnly = true;
     public readonly description = "Get an invite link to a server by ID.";
 
-    async execute(message: Message | ChatInputCommandInteraction, context: BasicCommandContext): Promise<CommandReturn> {
+    async execute(message: CommandMessage, context: AnyCommandContext): Promise<CommandReturn> {
         await this.deferIfInteraction(message);
 
         if (context.isLegacy && !context.args[0]) {
@@ -18,9 +18,9 @@ export default class ServerInviteCommand extends Command {
 
         const guildId = context.isLegacy ? context.args[0] : context.options.getString("guildId", true);
 
-        // Check if the provided guild ID is blacklisted
-        if (blacklistedGuilds.has(guildId)) {
-            await this.error(message, "This server is blacklisted and cannot be invited.");
+        // Check if the guild is blacklisted
+        if (blacklistedGuilds.includes(guildId)) {
+            await this.error(message, "Sorry, this server is blacklisted and you cannot get an invite.");
             return;
         }
 
@@ -31,7 +31,7 @@ export default class ServerInviteCommand extends Command {
             return;
         }
 
-        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === ChannelType.GuildText) as TextChannel;
+        const systemChannel = guild.systemChannel || guild.channels.cache.find(ch => ch.type === "GUILD_TEXT");
         if (!systemChannel) {
             await this.error(message, "Unable to find a suitable channel to create an invite.");
             return;
