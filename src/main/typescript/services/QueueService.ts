@@ -20,6 +20,14 @@ class QueueService extends Service implements HasEventListeners {
         this.queueManager.register(queue, name);
     }
 
+    public getJobs() {
+        return this.queueManager.getJobs();
+    }
+
+    public getJob(id: number) {
+        return this.queueManager.getJob(id);
+    }
+
     public async sync(): Promise<void> {
         const queues = await this.application.prisma.queue.findMany({
             where: {

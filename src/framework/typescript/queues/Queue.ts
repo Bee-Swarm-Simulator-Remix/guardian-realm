@@ -22,15 +22,15 @@ export type QueueOptions<T extends StorableData> = {
 abstract class Queue<T extends StorableData = StorableData> extends HasApplication {
     public static readonly uniqueName: string = "";
     public readonly data: T;
-    protected readonly guildId: Snowflake;
-    protected readonly userId: Snowflake;
-    protected readonly channelId?: Snowflake;
-    protected readonly messageId?: Snowflake;
+    public readonly guildId: Snowflake;
+    public readonly userId: Snowflake;
+    public readonly channelId?: Snowflake;
+    public readonly messageId?: Snowflake;
+    public readonly runsAt: Date;
+    public readonly repeat?: boolean;
     protected readonly manager: QueueManager;
-    protected readonly runsAt: Date;
-    protected readonly repeat?: boolean;
-    private _isExecuting: boolean = false;
 
+    private _isExecuting: boolean = false;
     private _createdAt?: Date;
     private _updatedAt?: Date;
     private _id?: number;
@@ -46,7 +46,7 @@ abstract class Queue<T extends StorableData = StorableData> extends HasApplicati
         this.data = options.data;
         this.manager = manager;
         this.guildId = options.guildId;
-        this.userId = options.userId ?? this.application.getClient().user!.id;
+        this.userId = options.userId ?? application.getClient().user!.id;
         this.channelId = options.channelId;
         this.messageId = options.messageId;
         this.runsAt = options.runsAt;
@@ -89,6 +89,10 @@ abstract class Queue<T extends StorableData = StorableData> extends HasApplicati
         );
     }
 
+    public get uniqueName() {
+        return (this.constructor as typeof Queue).uniqueName;
+    }
+
     public async save() {
         if (this._id !== undefined) {
             throw new Error("This queue has already been saved");
@@ -114,6 +118,14 @@ abstract class Queue<T extends StorableData = StorableData> extends HasApplicati
         this.manager.add(this);
 
         return id;
+    }
+
+    public get createdAt() {
+        return this._createdAt;
+    }
+
+    public get updatedAt() {
+        return this._updatedAt;
     }
 
     public async delete() {

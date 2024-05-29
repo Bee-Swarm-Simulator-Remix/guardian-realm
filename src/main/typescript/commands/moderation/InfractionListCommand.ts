@@ -26,7 +26,11 @@ class InfractionListCommand extends Command {
     public override readonly name = "infraction::list";
     public override readonly description: string = "List infractions for a user.";
     public override readonly aliases = ["infraction::ls", "infraction::s"];
-    public override readonly permissions = [PermissionFlagsBits.ManageMessages];
+    public override readonly permissions = [
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ViewAuditLog
+    ];
+    public override readonly permissionCheckingMode = "or";
     public override readonly usage = ["<user: User>"];
 
     @Inject()
@@ -54,8 +58,7 @@ class InfractionListCommand extends Command {
         }
 
         const pagination: Pagination<Infraction> = Pagination.withData(infractions)
-            .setData(infractions)
-            .setLimit(3)
+            .setLimit(5)
             .setMaxTimeout(Pagination.DEFAULT_TIMEOUT)
             .setMessageOptionsBuilder(({ data, maxPages, page }) => {
                 let description = "";

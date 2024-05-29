@@ -79,8 +79,9 @@ function getProperty(name, def) {
 
 function determineIndexFile() {
     const blazeSrcPath = getProperty("blaze.srcpath", "build_src");
-    return path.resolve(PROJECT_DIR, blazeSrcPath, "src/index.ts");
+    return path.resolve(PROJECT_DIR, blazeSrcPath, "src/main/typescript/index.ts");
 }
+
 
 function getBunPath() {
     if (process.isBun) {
@@ -98,7 +99,11 @@ function getBunPath() {
  */
 function execute(file, ...args) {
     const { status } = spawnSync(getBunPath(), [file, ...args], {
-        stdio: process.env.BLAZE_QUIET === "1" ? "ignore" : "inherit"
+        stdio: process.env.BLAZE_QUIET === "1" ? "ignore" : "inherit",
+        env: {
+            ...process.env,
+            PATH: `${process.env.PATH}:${path.resolve(process.cwd(), "node_modules/.bin")}`
+        }
     });
 
     if (status !== 0) {

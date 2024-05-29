@@ -51,7 +51,8 @@ class Application {
 
     public constructor(
         public readonly rootPath: string,
-        public readonly projectRootPath: string
+        public readonly projectRootPath: string,
+        public readonly version: string
     ) {
         this.container = Container.getInstance();
     }
@@ -182,6 +183,13 @@ class Application {
     }
 
     public getServiceByName<N extends ServiceName>(name: N, error = true): ServiceRecord[N] {
+        return this.service(name, error);
+    }
+
+    /**
+     * An alias of Application#getServiceByName.
+     */
+    public service<N extends ServiceName>(name: N, error = true): ServiceRecord[N] {
         const service = this.serviceManager.getServiceByName(name);
 
         if (!service && error) {

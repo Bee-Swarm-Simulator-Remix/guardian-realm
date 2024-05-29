@@ -10,6 +10,8 @@ import Duration from "@framework/datetime/Duration";
 import InfractionViewCommand from "@main/commands/moderation/InfractionViewCommand";
 import InfractionManager from "@main/services/InfractionManager";
 import PermissionManagerService from "@main/services/PermissionManagerService";
+import { ArgumentDefaultRules } from "@main/utils/ArgumentDefaultRules";
+import { ErrorMessages } from "@main/utils/ErrorMessages";
 import { Infraction, InfractionType } from "@prisma/client";
 import { PermissionFlagsBits, User } from "discord.js";
 
@@ -44,18 +46,20 @@ type InfractionCreateCommandArgs = {
     names: ["reason"],
     types: [RestStringArgument],
     optional: true,
-    errorMessages: [
-        {
-            [ErrorType.InvalidType]: "Invalid reason provided."
-        }
-    ],
+    errorMessages: [ErrorMessages.Reason],
+    rules: [ArgumentDefaultRules.Reason],
+    interactionRuleIndex: 0,
     interactionName: "reason",
     interactionType: RestStringArgument
 })
 class InfractionCreateCommand extends Command {
     public override readonly name = "infraction::create";
     public override readonly description: string = "Create a new infraction.";
-    public override readonly permissions = [PermissionFlagsBits.ManageMessages];
+    public override readonly permissions = [
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ViewAuditLog
+    ];
+    public override readonly permissionCheckingMode = "or";
     public override readonly usage = ["<user: User> <type: InfractionType> [reason: string]"];
 
     @Inject()

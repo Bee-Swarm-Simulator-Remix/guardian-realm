@@ -23,6 +23,7 @@ enum InfractionType {
     NOTE
     ROLE
     MOD_MESSAGE
+    SHOT
 }
 
 enum InfractionDeliveryStatus {
@@ -124,10 +125,55 @@ model MuteRecord {
     id        Int      @id @default(autoincrement())
     memberId  String
     guildId   String
+    roles     String[]
     createdAt DateTime @default(now())
     updatedAt DateTime @default(now()) @updatedAt
 
     @@map("mute_records")
+}
+
+model ChannelLock {
+    id          Int      @id @default(autoincrement())
+    guildId     String
+    channelId   String
+    permissions Json
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @default(now()) @updatedAt
+
+    @@map("channel_locks")
+}
+
+model AfkEntry {
+    id           Int      @id @default(autoincrement())
+    reason       String?
+    userId       String
+    guildId      String
+    mentions     String[] @default([])
+    mentionCount Int      @default(0)
+    global       Boolean  @default(false)
+    createdAt    DateTime @default(now())
+    updatedAt    DateTime @default(now()) @updatedAt
+
+    @@map("afk_entries")
+}
+
+model User {
+    id                     Int       @id @default(autoincrement())
+    name                   String?
+    username               String
+    discordId              String
+    guilds                 String[]  @default([])
+    password               String
+    token                  String?
+    recoveryToken          String?
+    recoveryCode           String?
+    recoveryAttempts       Int       @default(0)
+    recoveryTokenExpiresAt DateTime?
+    createdAt              DateTime  @default(now())
+    tokenExpiresAt         DateTime?
+    updatedAt              DateTime  @default(now()) @updatedAt
+
+    @@map("users")
 }
 
 // The following models were used in the previous version of the bot and are no longer used.
@@ -164,17 +210,6 @@ model Snippet {
     @@map("snippets")
 }
 
-model ChannelLock {
-    id          Int      @id @default(autoincrement())
-    guild_id    String
-    channel_id  String
-    permissions Json
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @default(now()) @updatedAt
-
-    @@map("channel_locks")
-}
-
 model ReactionRole {
     id                  Int      @id @default(autoincrement())
     emoji               String
@@ -194,25 +229,6 @@ model ReactionRole {
     @@map("reaction_roles")
 }
 
-model User {
-    id                     Int       @id @default(autoincrement())
-    name                   String?
-    username               String
-    discordId              String
-    guilds                 String[]  @default([])
-    password               String
-    token                  String?
-    recoveryToken          String?
-    recoveryCode           String?
-    recoveryAttempts       Int       @default(0)
-    recoveryTokenExpiresAt DateTime?
-    createdAt              DateTime  @default(now())
-    tokenExpiresAt         DateTime?
-    updatedAt              DateTime  @default(now()) @updatedAt
-
-    @@map("users")
-}
-
 model BoostRoleEntries {
     id        Int      @id @default(autoincrement())
     role_id   String
@@ -221,19 +237,6 @@ model BoostRoleEntries {
     createdAt DateTime @default(now())
 
     @@map("boost_role_entries")
-}
-
-model AfkEntry {
-    id        Int      @id @default(autoincrement())
-    reason    String?
-    userId    String
-    guildId   String
-    mentions  String[] @default([])
-    global    Boolean  @default(false)
-    createdAt DateTime @default(now())
-    updatedAt DateTime @default(now()) @updatedAt
-
-    @@map("afk_entries")
 }
 
 enum PermissionLogicMode {

@@ -58,7 +58,7 @@ class ArgumentParser extends HasClient {
             [];
         let payload: ArgumentPayload;
         const { args, argv } = context;
-        const commandManager = Application.current().getServiceByName("commandManager");
+        const commandManager = Application.current().service("commandManager");
 
         if (isDynamic && !subcommand) {
             const paramTypes = Reflect.getMetadata(
@@ -178,9 +178,14 @@ class ArgumentParser extends HasClient {
         }
 
         if (subcommand) {
-            const commandManager = Application.current().getServiceByName("commandManager");
+            const commandManager = Application.current().service("commandManager");
             const canonicalName = commandManager.getCommand(argv[0])?.name ?? argv[0];
-            const command = commandManager.commands.get(`${canonicalName}::${args[0]}`);
+            const baseCommand = commandManager.commands.get(canonicalName);
+
+            const command =
+                baseCommand && baseCommand.isolatedSubcommands === false
+                    ? baseCommand
+                    : commandManager.commands.get(`${canonicalName}::${args[0]}`);
 
             if (!command) {
                 if (typeof onSubcommandNotFound === "function" && context) {
@@ -255,7 +260,7 @@ class ArgumentParser extends HasClient {
                     arg,
                     argIndex,
                     name,
-                    expectedArgInfo.rules,
+                    expectedArgInfo.rules?.[argTypeIndex],
                     !expectedArgInfo.optional
                 );
 
@@ -387,7 +392,9 @@ class ArgumentParser extends HasClient {
             const name = expectedArgInfo.interactionName ?? expectedArgInfo.names[0];
 
             if (
-                !expectedArgInfo.rules?.["interaction:no_required_check"] &&
+                !expectedArgInfo.rules?.[expectedArgInfo.interactionRuleIndex ?? 0]?.[
+                    "interaction:no_required_check"
+                ] &&
                 !interaction.options.get(name)
             ) {
                 if (expectedArgInfo.optional || expectedArgInfo.default !== undefined) {
@@ -406,7 +413,7 @@ class ArgumentParser extends HasClient {
                 context,
                 interaction,
                 name,
-                expectedArgInfo.rules,
+                expectedArgInfo.rules?.[expectedArgInfo.interactionRuleIndex ?? 0],
                 !expectedArgInfo.optional
             );
 

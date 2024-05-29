@@ -28,11 +28,11 @@ import {
 } from "@framework/permissions/AbstractPermissionManagerService";
 import { Name } from "@framework/services/Name";
 import { OptionalRecord } from "@framework/types/OptionalRecord";
-import { GuildMember } from "discord.js";
+import { Guild, GuildMember, Snowflake } from "discord.js";
+import { PermissionMode } from "../schemas/GuildConfigSchema";
 import DiscordPermissionManager from "../security/DiscordPermissionManager";
 import LayeredPermissionManager from "../security/LayeredPermissionManager";
 import LevelBasedPermissionManager from "../security/LevelBasedPermissionManager";
-import { PermissionMode } from "../types/GuildConfigSchema";
 import ConfigurationManager from "./ConfigurationManager";
 
 @Name("permissionManager")
@@ -48,7 +48,7 @@ class PermissionManagerService extends AbstractPermissionManagerService {
     }
 
     private createManagers() {
-        const config = this.application.getServiceByName("configManager").config;
+        const config = this.application.service("configManager").config;
         const modes = new FluentSet<PermissionMode>();
 
         for (const guildId in config) {
@@ -82,6 +82,12 @@ class PermissionManagerService extends AbstractPermissionManagerService {
         }
     }
 
+    public getManagerForGuild(guildResolvable: Guild | Snowflake) {
+        return this.getManager(
+            typeof guildResolvable === "string" ? guildResolvable : guildResolvable.id
+        );
+    }
+
     public override async hasPermissions(
         member: GuildMember,
         permissions: SystemPermissionResolvable[],
@@ -104,7 +110,7 @@ class PermissionManagerService extends AbstractPermissionManagerService {
 
     protected async getManager(guildId: string) {
         const mode =
-            this.application.getServiceByName("configManager").config[guildId]?.permissions.mode ??
+            this.application.service("configManager").config[guildId]?.permissions.mode ??
             "discord";
 
         if (!this.managers[mode]) {
@@ -144,11 +150,11 @@ class PermissionManagerService extends AbstractPermissionManagerService {
         moderator: GuildMember,
         forceNoSameMemberCheck?: boolean
     ) {
-        if (member.id === moderator.id && !forceNoSameMemberCheck) {
+        const moderatorIsSystemAdmin = await this.isSystemAdmin(member);
+
+        if (member.id === moderator.id && !moderatorIsSystemAdmin && !forceNoSameMemberCheck) {
             return false;
         }
-
-        const moderatorIsSystemAdmin = await this.isSystemAdmin(member);
 
         if (moderatorIsSystemAdmin) {
             return true;

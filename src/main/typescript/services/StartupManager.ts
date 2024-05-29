@@ -21,6 +21,7 @@ import FileSystem from "@framework/polyfills/FileSystem";
 import { Name } from "@framework/services/Name";
 import { Service } from "@framework/services/Service";
 import { emoji } from "@framework/utils/emoji";
+import { version } from "@root/package.json";
 import archiver from "archiver";
 import axios from "axios";
 import chalk from "chalk";
@@ -41,7 +42,6 @@ import { rm } from "fs/promises";
 import path from "path";
 import semver from "semver";
 import { setTimeout } from "timers/promises";
-import { version } from "../../../../package.json";
 import { HasEventListeners } from "../types/HasEventListeners";
 import { safeChannelFetch, safeMessageFetch } from "../utils/fetch";
 import { chunkedString, systemPrefix } from "../utils/utils";
@@ -181,9 +181,7 @@ class StartupManager extends Service implements HasEventListeners {
             );
 
             this.application.logger.info("Restart requested. Shutting down...");
-            process.exit(
-                this.application.getServiceByName("configManager").systemConfig.restart_exit_code
-            );
+            process.exit(this.application.service("configManager").systemConfig.restart_exit_code);
         });
 
         return message;

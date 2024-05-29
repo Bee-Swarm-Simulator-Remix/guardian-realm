@@ -24,6 +24,8 @@ import type {
     Message,
     PermissionResolvable,
     PermissionsString,
+    SlashCommandOptionsOnlyBuilder,
+    Snowflake,
     User
 } from "discord.js";
 import { ApplicationCommandType, ContextMenuCommandBuilder, SlashCommandBuilder } from "discord.js";
@@ -37,7 +39,8 @@ import type { PermissionManagerServiceInterface } from "../contracts/PermissionM
 import type { Guard } from "../guards/Guard";
 import type { GuardLike } from "../guards/GuardLike";
 import type { SystemOnlyPermissionResolvable } from "../permissions/AbstractPermissionManagerService";
-import type { Permission, PermissionLike } from "../permissions/Permission";
+import type { PermissionLike } from "../permissions/Permission";
+import { Permission } from "../permissions/Permission";
 import { PermissionDeniedError } from "../permissions/PermissionDeniedError";
 import type { Policy } from "../policies/Policy";
 import type Builder from "../types/Builder";
@@ -159,10 +162,20 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
     public readonly maxAttempts: number = 1;
 
     /**
+     * Whether the command is disabled.
+     */
+    public readonly disabled: boolean = false;
+
+    /**
      * The required permissions for the member running this command.
      * Can be modified or removed by the permission manager.
      */
     public readonly permissions?: CommandPermissionLike[];
+
+    /**
+     * The mode for checking permissions.
+     */
+    public readonly permissionCheckingMode: "or" | "and" = "and";
 
     /**
      * The persistent discord permissions for the member running this command.
@@ -220,7 +233,7 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
      */
     public constructor(protected readonly application: Application) {
         this.argumentParser = new ArgumentParser(application.getClient());
-        this.internalPermissionManager = application.getServiceByName(
+        this.internalPermissionManager = application.service(
             "permissionManager"
         ) satisfies PermissionManagerServiceInterface;
     }
@@ -278,6 +291,19 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
         return this.supportsChatInput() || this.supportsContextMenu();
     }
 
+    public isDisabled(guildId?: Snowflake): boolean {
+        const configManager = this.application.service(
+            "configManager"
+        ) as ConfigurationManagerServiceInterface;
+        const name = this.name.replace("::", " ");
+
+        return (
+            this.disabled ||
+            configManager.systemConfig.commands.global_disabled.includes(name) ||
+            !!(guildId && configManager.config[guildId]?.commands.disabled_commands.includes(name))
+        );
+    }
+
     /**
      * Builds the chat input command.
      *
@@ -288,6 +314,15 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
             .setName(this.name)
             .setDescription(this.description)
             .setDMPermission(false);
+    }
+
+    /**
+     * Builds the context menu command.
+     *
+     * @returns The context menu command builder.
+     */
+    protected buildContextMenu() {
+        return new ContextMenuCommandBuilder().setName(this.name).setDMPermission(false);
     }
 
     /**
@@ -387,9 +422,7 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
 
         if (!state.isSystemAdmin) {
             const ratelimiter = (
-                this.application.getServiceByName(
-                    "commandManager"
-                ) as CommandManagerServiceInterface
+                this.application.service("commandManager") as CommandManagerServiceInterface
             ).getRateLimiter();
 
             if (
@@ -446,6 +479,20 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
         return this.subcommands.length > 0;
     }
 
+    private isInDisabledChannel(guildId: Snowflake, channelId: Snowflake) {
+        const configManager = this.application.service(
+            "configManager"
+        ) satisfies ConfigurationManagerServiceInterface;
+
+        const channels = configManager.config[guildId]?.commands.channels;
+
+        return channels?.mode === "include"
+            ? !channels.list.includes(channelId)
+            : channels?.mode === "exclude"
+              ? channels.list.includes(channelId)
+              : false;
+    }
+
     /**
      * Checks the preconditions of the command.
      *
@@ -457,6 +504,16 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
         context: Context,
         state: CommandExecutionState<false>
     ): Promise<boolean> {
+        if (this.isDisabled(context.guildId)) {
+            await context.error("This command is disabled.");
+            return false;
+        }
+
+        if (this.isInDisabledChannel(context.guildId, context.channelId)) {
+            await context.error("This command is disabled in this channel.");
+            return false;
+        }
+
         if (!context.member) {
             return false;
         }
@@ -561,7 +618,17 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
         }
 
         if (this.persistentDiscordPermissions) {
-            if (!context.member.permissions.has(this.persistentDiscordPermissions, true)) {
+            if (
+                this.permissionCheckingMode === "and" &&
+                !context.member.permissions.has(this.persistentDiscordPermissions, true)
+            ) {
+                return false;
+            }
+
+            if (
+                this.permissionCheckingMode === "or" &&
+                !context.member.permissions.any(this.persistentDiscordPermissions, true)
+            ) {
                 return false;
             }
         }
@@ -574,14 +641,14 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
             }
         }
 
-        const configManager = this.application.getServiceByName(
+        const configManager = this.application.service(
             "configManager"
         ) satisfies ConfigurationManagerServiceInterface;
         const mode =
             configManager.config[context.guildId]?.permissions.command_permission_mode ??
             configManager.systemConfig.command_permission_mode;
 
-        const commandManager = this.application.getServiceByName(
+        const commandManager = this.application.service(
             "commandManager"
         ) satisfies CommandManagerServiceInterface;
 
@@ -600,11 +667,37 @@ abstract class Command<T extends ContextType = ContextType.ChatInput | ContextTy
         const { overwrite } = result;
 
         if (((!overwrite && mode === "overwrite") || mode === "check") && this.permissions) {
-            return await permissionManager.hasPermissions(
-                context.member,
-                this.permissions,
-                state.memberPermissions
-            );
+            if (this.permissionCheckingMode === "and") {
+                return await permissionManager.hasPermissions(
+                    context.member,
+                    this.permissions,
+                    state.memberPermissions
+                );
+            } else
+                block: {
+                    for (const permission of this.permissions) {
+                        if (
+                            Permission.isDiscordPermission(permission) &&
+                            !context.member.permissions.has(permission, true)
+                        ) {
+                            continue;
+                        }
+
+                        if (
+                            !(await permissionManager.hasPermissions(
+                                context.member,
+                                [permission],
+                                state.memberPermissions
+                            ))
+                        ) {
+                            continue;
+                        }
+
+                        break block;
+                    }
+
+                    return false;
+                }
         }
 
         return true;
@@ -676,7 +769,10 @@ export type CommandExecutionState<L extends boolean = false> = {
     memberPermissions: MemberPermissionData | (L extends false ? undefined : never);
     isSystemAdmin: boolean | (L extends false ? undefined : never);
 };
-export type Buildable = Pick<SlashCommandBuilder | ContextMenuCommandBuilder, "name" | "toJSON">;
+export type Buildable = Pick<
+    SlashCommandBuilder | ContextMenuCommandBuilder | SlashCommandOptionsOnlyBuilder,
+    "name" | "toJSON"
+>;
 export type PreconditionExecutionResult = {
     passed: boolean;
     state: CommandExecutionState<boolean>;

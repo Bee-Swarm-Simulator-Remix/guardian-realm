@@ -205,7 +205,7 @@ setup_bun() {
         args=()
 
         if [ "$bun_version" != "latest" ]; then
-            args=(-s "bun-v$bun_version")
+            args=("-s" "bun-v$bun_version")
         fi
 
         mkdir -p "$bun_dir"
@@ -252,11 +252,11 @@ if [ "$node" == "node" ]; then
     cmd="npm"
 fi
 
-file="$blaze_srcpath/build/index.js"
+file="$blaze_srcpath/build/out/main/typescript/index.js"
 if [ ! -z "$has_bun" ] || [ $setup_done -eq 1 ] || [ -x "$bun" ]; then
     cmd=$bun
     has_bun=1
-    file="$blaze_srcpath/src/index.ts"
+    file="$blaze_srcpath/src/main/typescript/index.ts"
 fi
 
 blaze_cmd() {
@@ -276,7 +276,7 @@ blaze_cmd() {
 if [ ! -e "$projectdir/.blaze/build.d.ts" ]; then
     print 34 "info   " "Creating $projectdir/.blaze/build.d.ts..."
     mkdir -p "$projectdir/.blaze"
-    cp "$blaze_srcpath/templates/build.d.ts" "$projectdir/.blaze/build.d.ts"
+    cp "$blaze_srcpath/src/main/typescript/types/build.d.ts" "$projectdir/.blaze/build.d.ts"
 
     if [ $? -ne 0 ]; then
         print "1;31" "error  " "Failed to create build.d.ts."
@@ -303,7 +303,7 @@ if [ $setup -eq 1 ]; then
         rm -rf "$projectdir/node_modules/blazebuild" || exit 1
     fi
 
-    ln -s "$(readlink -f "$blaze_srcpath")" "$projectdir/node_modules/blazebuild" || exit 1
+    ln -s "$(readlink -f "$blaze_srcpath/src/main/typescript")" "$projectdir/node_modules/blazebuild" || exit 1
 
     if [ -z "$has_bun" ]; then
         print 34 "info   " "Building BlazeBuild (for node)..."

@@ -21,6 +21,7 @@ import { Inject } from "@framework/container/Inject";
 import EventListener from "@framework/events/EventListener";
 import type { Logger } from "@framework/log/Logger";
 import { Events } from "@framework/types/ClientEvents";
+import type AFKService from "@main/services/AFKService";
 import { Message, MessageType } from "discord.js";
 import type RuleModerationService from "../../automod/RuleModerationService";
 import type SpamModerationService from "../../automod/SpamModerationService";
@@ -42,6 +43,9 @@ class MessageCreateEventListener extends EventListener<Events.MessageCreate> {
 
     @Inject("spamModerationService")
     private readonly spamModerationService!: SpamModerationService;
+
+    @Inject("afkService")
+    private readonly afkService!: AFKService;
 
     private readonly listeners: Array<(message: Message) => unknown> = [];
 
@@ -76,6 +80,10 @@ class MessageCreateEventListener extends EventListener<Events.MessageCreate> {
 
         if (value === false) {
             this.logger.debug("Command or snippet not found: all strategies failed");
+        }
+
+        if (value !== true) {
+            this.afkService.onMessageCreate(message);
         }
     }
 }

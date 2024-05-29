@@ -24,9 +24,11 @@ import RestStringArgument from "@framework/arguments/RestStringArgument";
 import { Buildable, Command, CommandMessage } from "@framework/commands/Command";
 import Context from "@framework/commands/Context";
 import { Inject } from "@framework/container/Inject";
-import { GuildBasedChannel, PermissionFlagsBits } from "discord.js";
-import InfractionManager from "../../services/InfractionManager";
-import PermissionManagerService from "../../services/PermissionManagerService";
+import DirectiveParseError from "@framework/directives/DirectiveParseError";
+import type ConfigurationManager from "@main/services/ConfigurationManager";
+import DirectiveParsingService from "@main/services/DirectiveParsingService";
+import type SystemAuditLoggingService from "@main/services/SystemAuditLoggingService";
+import { APIEmbed, GuildBasedChannel, PermissionFlagsBits } from "discord.js";
 
 type EchoCommandArgs = {
     content: string;
@@ -41,6 +43,17 @@ type EchoCommandArgs = {
         {
             ...ChannelArgument.defaultErrors,
             [ErrorType.Required]: "You must specify the content of the message to send!"
+        },
+        {
+            [ErrorType.InvalidRange]: "The message must be between 1 and 4096 characters long.",
+            [ErrorType.Required]: "You must specify the content of the message to send!"
+        }
+    ],
+    rules: [
+        {},
+        {
+            "range:max": 4096,
+            "range:min": 1
         }
     ],
     interactionName: "channel",
@@ -50,6 +63,17 @@ type EchoCommandArgs = {
     names: ["content"],
     types: [RestStringArgument],
     optional: true,
+    errorMessages: [
+        {
+            [ErrorType.InvalidRange]: "The message must be between 1 and 4096 characters long."
+        }
+    ],
+    rules: [
+        {
+            "range:max": 4096,
+            "range:min": 1
+        }
+    ],
     interactionName: "content",
     interactionType: RestStringArgument
 })
@@ -60,16 +84,20 @@ class EchoCommand extends Command {
         "Echoes a message to a channel. If no channel is specified, the message will be sent in the current channel.";
     public override readonly permissions = [PermissionFlagsBits.ManageMessages];
     public override readonly defer = true;
+    public override readonly ephemeral = true;
     public override readonly usage = [
         "[expression: RestString]",
         "<channel: TextBasedChannel> [expression: RestString]"
     ];
 
-    @Inject()
-    protected readonly infractionManager!: InfractionManager;
+    @Inject("configManager")
+    protected readonly configManager!: ConfigurationManager;
+
+    @Inject("systemAuditLogging")
+    protected readonly systemAuditLogging!: SystemAuditLoggingService;
 
     @Inject()
-    protected readonly permissionManager!: PermissionManagerService;
+    protected readonly directiveParsingService!: DirectiveParsingService;
 
     public override build(): Buildable[] {
         return [
@@ -95,8 +123,6 @@ class EchoCommand extends Command {
     ): Promise<void> {
         const { content, channel } = args;
 
-        console.log(channel?.id, content);
-
         if (channel && !channel.isTextBased()) {
             return void context.error("You can only send messages to text channels.");
         }
@@ -106,7 +132,51 @@ class EchoCommand extends Command {
         }
 
         const finalChannel = channel ?? context.channel;
-        await finalChannel.send(content);
+
+        try {
+            const { data, output } = await this.directiveParsingService.parse(content);
+            const options = {
+                files: context.isLegacy()
+                    ? context.commandMessage.attachments.map(a => ({
+                          attachment: a.proxyURL,
+                          name: a.name
+                      }))
+                    : [],
+                content: output.trim() === "" ? undefined : output,
+                embeds: (data.embeds as APIEmbed[]) ?? [],
+                allowedMentions:
+                    this.configManager.config[context.guildId]?.echoing?.allow_mentions !== false ||
+                    context.member?.permissions?.has("MentionEveryone", true)
+                        ? undefined
+                        : { parse: [], roles: [], users: [] }
+            };
+
+            try {
+                await finalChannel.send(options);
+            } catch (error) {
+                return void context.error(
+                    "An error occurred while sending the message. Make sure I have the necessary permissions."
+                );
+            }
+
+            if (context.isChatInput()) {
+                await context.success("Message sent successfully.");
+            }
+
+            this.systemAuditLogging.logEchoCommandExecuted({
+                command: this.name,
+                guild: context.guild,
+                rawCommandContent: content,
+                user: context.user,
+                generatedMessageOptions: options
+            });
+        } catch (error) {
+            return void context.error(
+                error instanceof DirectiveParseError
+                    ? error.message.replace("Invalid argument: ", "")
+                    : "Error parsing the directives in the message content."
+            );
+        }
     }
 }
 

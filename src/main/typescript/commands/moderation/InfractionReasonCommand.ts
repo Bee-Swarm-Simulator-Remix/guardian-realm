@@ -7,6 +7,8 @@ import Context from "@framework/commands/Context";
 import { Inject } from "@framework/container/Inject";
 import InfractionManager from "@main/services/InfractionManager";
 import PermissionManagerService from "@main/services/PermissionManagerService";
+import { ArgumentDefaultRules } from "@main/utils/ArgumentDefaultRules";
+import { ErrorMessages } from "@main/utils/ErrorMessages";
 import { PermissionFlagsBits } from "discord.js";
 
 type InfractionReasonCommandArgs = {
@@ -31,19 +33,20 @@ type InfractionReasonCommandArgs = {
     names: ["reason"],
     types: [RestStringArgument],
     optional: false,
-    errorMessages: [
-        {
-            [ErrorType.InvalidType]: "Invalid reason provided.",
-            [ErrorType.Required]: "Reason is required."
-        }
-    ],
+    errorMessages: [ErrorMessages.Reason],
+    rules: [ArgumentDefaultRules.Reason],
+    interactionRuleIndex: 0,
     interactionName: "reason",
     interactionType: RestStringArgument
 })
 class InfractionReasonCommand extends Command {
     public override readonly name = "infraction::reason";
     public override readonly description: string = "Update the reason of an infraction.";
-    public override readonly permissions = [PermissionFlagsBits.ManageMessages];
+    public override readonly permissions = [
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ViewAuditLog
+    ];
+    public override readonly permissionCheckingMode = "or";
     public override readonly usage = ["<id: number> <reason: string>"];
 
     @Inject()

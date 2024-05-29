@@ -21,6 +21,8 @@ import type { AnyConstructor } from "@framework/container/Container";
 import Container from "@framework/container/Container";
 import Kernel from "@framework/core/Kernel";
 import { Logger } from "@framework/log/Logger";
+import { createAxiosClient } from "@main/utils/axios";
+import metadata from "@root/package.json";
 import axios from "axios";
 import { spawn } from "child_process";
 import { GatewayIntentBits, Partials } from "discord.js";
@@ -28,7 +30,6 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import path from "path";
 import { createInterface } from "readline/promises";
-import metadata from "../../../../package.json";
 import ConfigurationManager from "../services/ConfigurationManager";
 import LogStreamingService from "../services/LogStreamingService";
 import { systemPrefix } from "../utils/utils";
@@ -69,11 +70,18 @@ class DiscordKernel extends Kernel {
         "@services/PermissionManagerService",
         "@services/QueueService",
         "@services/AuditLoggingService",
+        "@services/SystemAuditLoggingService",
         "@services/InfractionManager",
+        "@automod/AntiMemberJoinService",
         "@services/ModerationActionService",
         "@automod/SpamModerationService",
         "@automod/RuleModerationService",
+        "@services/ChannelLockManager",
+        "@services/ReactionRoleService",
+        "@services/AFKService",
+        "@services/AuthService",
         "@services/ImageRecognitionService",
+        "@services/DirectiveParsingService",
         "@root/framework/typescript/api/APIServer"
     ];
 
@@ -152,6 +160,8 @@ class DiscordKernel extends Kernel {
                 key: binding.key
             });
         }
+
+        createAxiosClient(application);
     }
 
     public getClient() {
@@ -179,8 +189,8 @@ class DiscordKernel extends Kernel {
         await application.boot();
 
         if (process.env.SERVER_ONLY_MODE) {
-            await application.getServiceByName("apiServer").boot();
-            await application.getServiceByName("apiServer").start();
+            await application.service("apiServer").boot();
+            await application.service("apiServer").start();
         } else {
             this.logger.debug("Attempting to log into Discord...");
             await application.getClient().login(process.env.TOKEN);

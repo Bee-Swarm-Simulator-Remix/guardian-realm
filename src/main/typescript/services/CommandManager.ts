@@ -33,6 +33,7 @@ import { isDevelopmentMode } from "@framework/utils/utils";
 import CommandRateLimiter from "@main/security/CommandRateLimiter";
 import { CommandPermissionOverwriteAction } from "@prisma/client";
 import {
+    ApplicationCommandDataResolvable,
     ApplicationCommandOptionType,
     ChatInputCommandInteraction,
     Collection,
@@ -86,22 +87,30 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             return;
         }
 
-        const commands = this.commands
-            .filter(
-                (command, key) =>
-                    !command.name.includes("::") &&
-                    command.name === key &&
-                    command.supportsInteraction()
-            )
-            .map(command => command.build().map(builder => builder.toJSON()))
-            .flat();
+        const clear = process.argv.includes("--clear-commands") || process.argv.includes("-c");
+        const global = process.argv.includes("--global-commands") || process.argv.includes("-g");
+        const commands = clear
+            ? []
+            : this.commands
+                  .filter(
+                      (command, key) =>
+                          !command.name.includes("::") &&
+                          command.name === key &&
+                          command.supportsInteraction()
+                  )
+                  .map(command =>
+                      command
+                          .build()
+                          .map(builder => builder.toJSON() as ApplicationCommandDataResolvable)
+                  )
+                  .flat();
 
-        if (!commands.length) {
+        if (!clear && !commands.length) {
             this.application.logger.debug("No commands to register");
             return;
         }
 
-        let guildId = mode === "guild" ? process.env.HOME_GUILD_ID : undefined;
+        let guildId = mode === "guild" && !global ? process.env.HOME_GUILD_ID : undefined;
         let registered = false;
 
         if (guildId) {
@@ -117,10 +126,10 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             );
             registered = true;
         } else if (
-            mode === "auto_global" &&
+            (mode === "auto_global" || global) &&
             (process.argv.includes("--update-commands") || process.argv.includes("-u"))
         ) {
-            if (isDevelopmentMode()) {
+            if (isDevelopmentMode() && !global) {
                 this.client.guilds.cache
                     .find(g => g.id === process.env.HOME_GUILD_ID!)
                     ?.commands.set(commands);
@@ -140,7 +149,7 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
     }
 
     public getCommand(name: string): Command | null {
-        return this.commands.get(name) ?? null;
+        return this.commands.get(name.toLowerCase()) ?? null;
     }
 
     public getRateLimiter() {
@@ -176,7 +185,7 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
         }
 
         if (loadMetadata) {
-            await this.application.classLoader.loadEventsFromMetadata(command);
+            this.application.classLoader.loadEventsFromMetadata(command);
         }
     }
 
@@ -191,11 +200,16 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             return;
         }
 
-        const prefixes = [
-            config.prefix,
-            `<@${this.application.getClient().user!.id}>`,
-            `<@!${this.application.getClient().user!.id}>`
-        ];
+        const prefixes = [config.prefix];
+
+        if (
+            config.commands.mention_prefix ||
+            this.configManager.systemConfig.commands.mention_prefix
+        ) {
+            prefixes.push(`<@${this.application.getClient().user!.id}>`);
+            prefixes.push(`<@!${this.application.getClient().user!.id}>`);
+        }
+
         let foundPrefix;
 
         for (const prefix of prefixes) {
@@ -211,7 +225,8 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
 
         const content = message.content.slice(foundPrefix.length).trim();
         const argv = content.split(/ +/);
-        const [commandName, ...args] = argv;
+        const [rawCommandName, ...args] = argv;
+        const commandName = rawCommandName.toLowerCase();
         const command = this.commands.get(commandName);
 
         if (!command || !command.supportsLegacy()) {
@@ -219,8 +234,11 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
         }
 
         const context = new LegacyContext(commandName, content, message, args, argv);
+        const respondOnFail =
+            this.configManager.config[message.guildId!]?.commands.respond_on_precondition_fail;
 
-        if (this.configManager.systemConfig.commands.global_disabled.includes(commandName)) {
+        if (command.isDisabled(message.guildId!)) {
+            respondOnFail && (await context.error("This command is disabled."));
             return;
         }
 
@@ -228,10 +246,11 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             const subcommandName = argv[1];
             const key = command.isolatedSubcommands
                 ? `${this.getCanonicalName(commandName)}::${subcommandName}`
-                : commandName;
+                : this.getCanonicalName(commandName);
             const subcommand = this.commands.get(key);
 
-            if (this.configManager.systemConfig.commands.global_disabled.includes(key)) {
+            if (subcommand && subcommand.isDisabled(message.guildId!)) {
+                respondOnFail && (await context.error("This command is disabled."));
                 return;
             }
 
@@ -253,7 +272,7 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
                 } else {
                     await context.error(
                         subcommandName
-                            ? "Invalid subcommand provided"
+                            ? "Invalid subcommand provided."
                             : "Please provide a subcommand!"
                     );
                     return;
@@ -313,6 +332,12 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             commandName,
             interaction as ChatInputCommandInteraction | ContextMenuCommandInteraction
         );
+
+        if (command.isDisabled(interaction.guildId!)) {
+            this.configManager.config[interaction.guildId!]?.commands
+                .respond_on_precondition_fail && (await context.error("This command is disabled."));
+            return;
+        }
 
         try {
             await command.run(
@@ -401,7 +426,7 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
             return true;
         }
 
-        const manager = this.application.getServiceByName("permissionManager").managers.levels;
+        const manager = this.application.service("permissionManager").managers.levels;
 
         if (manager && manager instanceof LevelBasedPermissionManager) {
             const memberLevel = await manager.getMemberLevel(context.member);
@@ -607,7 +632,7 @@ class CommandManager extends Service implements CommandManagerServiceInterface {
         const memberPermissions =
             alreadyComputedPermissions ??
             (await this.application
-                .getServiceByName("permissionManager")
+                .service("permissionManager")
                 .getMemberPermissions(context.member));
 
         if (allow) {

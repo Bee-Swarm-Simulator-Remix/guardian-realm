@@ -17,6 +17,8 @@
  * along with SudoBot. If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { GuildConfig } from "@main/schemas/GuildConfigSchema";
+import type { SystemConfig } from "@main/schemas/SystemConfigSchema";
 import type {
     ChatInputCommandInteraction,
     ContextMenuCommandInteraction,
@@ -31,9 +33,7 @@ import type {
     User,
     UserContextMenuCommandInteraction
 } from "discord.js";
-import {
-    Message
-} from "discord.js";
+import { Message } from "discord.js";
 import Application from "../app/Application";
 import { emoji } from "../utils/emoji";
 import type { AnyCommand, Command, CommandMessage } from "./Command";
@@ -104,6 +104,14 @@ abstract class Context<T extends CommandMessage = CommandMessage> {
 
     public get memberId(): Snowflake | null {
         return this.member?.id ?? null;
+    }
+
+    public get config(): GuildConfig | undefined {
+        return Application.current().service("configManager").config[this.guildId];
+    }
+
+    public get systemConfig(): SystemConfig {
+        return Application.current().service("configManager").systemConfig;
     }
 
     public abstract get userId(): Snowflake;

@@ -1,22 +1,28 @@
-import "blazebuild/src/globals";
+import "blazebuild/types/build.d";
 
-import { AbstractTask } from "blazebuild/src/core/AbstractTask";
-import { Caching, CachingMode } from "blazebuild/src/decorators/Caching";
-import { Dependencies } from "blazebuild/src/decorators/Dependencies";
-import { Task } from "blazebuild/src/decorators/Task";
+import AbstractTask from "blazebuild/tasks/AbstractTask";
+import { TaskAction } from "blazebuild/tasks/TaskAction";
+import { TaskDependencyGenerator } from "blazebuild/tasks/TaskDependencyGenerator";
+import { TaskInputGenerator } from "blazebuild/tasks/TaskInputGenerator";
+import type { Awaitable } from "blazebuild/types/utils";
+import { files } from "blazebuild/utils/glob";
+import { $ } from "bun";
+import path from "path";
 
 class LintTask extends AbstractTask {
-    public override readonly name = "lint";
+    @TaskAction
+    protected override async run() {
+        await $`eslint "${process.cwd()}/src"`;
+    }
 
-    @Caching(CachingMode.Incremental)
-    @Dependencies("dependencies")
-    @Task({
-        name: "lint",
-        defaultDescription: "Lints the project using ESLint",
-        defaultGroup: "Other"
-    })
-    public override async execute() {
-        await x(`eslint "${project.srcDir}"`);
+    @TaskInputGenerator
+    protected override generateInput(): Awaitable<string[]> {
+        return files(path.resolve(process.cwd(), "src/**/*.ts"));
+    }
+
+    @TaskDependencyGenerator
+    protected override dependencies() {
+        return ["dependencies"];
     }
 }
 

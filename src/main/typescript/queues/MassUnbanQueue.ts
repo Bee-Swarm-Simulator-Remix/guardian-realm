@@ -1,5 +1,5 @@
 import Queue from "@framework/queues/Queue";
-import { LogEventType } from "@main/types/LoggingSchema";
+import { LogEventType } from "@main/schemas/LoggingSchema";
 import { InfractionType, type PrismaClient } from "@prisma/client";
 import type { Snowflake } from "discord.js";
 
@@ -50,7 +50,7 @@ class MassUnbanQueue extends Queue<MassUnbanQueuePayload> {
         }
 
         this.application
-            .getServiceByName("auditLoggingService")
+            .service("auditLoggingService")
             .emitLogEvent(guildId, LogEventType.MemberMassUnban, {
                 guild,
                 moderator: this.application.client.user!,

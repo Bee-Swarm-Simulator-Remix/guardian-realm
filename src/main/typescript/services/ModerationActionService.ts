@@ -2,15 +2,15 @@ import { Inject } from "@framework/container/Inject";
 import Duration from "@framework/datetime/Duration";
 import { Name } from "@framework/services/Name";
 import { Service } from "@framework/services/Service";
+import { ModerationActionType } from "@main/schemas/ModerationActionSchema";
 import { Infraction } from "@prisma/client";
 import { Guild, GuildMember, Message, TextChannel, User } from "discord.js";
-import { ModerationAction } from "../types/ModerationAction";
 import type InfractionManager from "./InfractionManager";
 
-type MemberOnlyAction = Extract<ModerationAction, { type: "kick" | "mute" | "role" | "warn" }>;
+type MemberOnlyAction = Extract<ModerationActionType, { type: "kick" | "mute" | "role" | "warn" }>;
 
 type TakeActionResult = {
-    failedActions: ModerationAction["type"][];
+    failedActions: ModerationActionType["type"][];
     infractions: Infraction[];
 };
 
@@ -27,10 +27,10 @@ class ModerationActionService extends Service {
     public async takeActions(
         guild: Guild,
         target: GuildMember | User,
-        actions: ModerationAction[],
+        actions: ModerationActionType[],
         payload: TakeActionPayload = {}
     ): Promise<TakeActionResult> {
-        const failedActions: ModerationAction["type"][] = [];
+        const failedActions: ModerationActionType["type"][] = [];
         const infractions: Infraction[] = [];
         const user = target instanceof GuildMember ? target.user : target;
 
@@ -55,7 +55,7 @@ class ModerationActionService extends Service {
 
             if (result?.status !== "success") {
                 failedActions.push(action.type);
-            } else if (result && "infraction" in result) {
+            } else if (result && "infraction" in result && result.infraction) {
                 infractions.push(result.infraction);
             }
         }
@@ -120,7 +120,7 @@ class ModerationActionService extends Service {
     private async takeActionOnUser(
         guild: Guild,
         target: User,
-        action: ModerationAction,
+        action: ModerationActionType,
         { channel, message }: TakeActionPayload
     ) {
         switch (action.type) {

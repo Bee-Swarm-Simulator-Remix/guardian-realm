@@ -3,15 +3,17 @@ import { GatewayEventListener } from "@framework/events/GatewayEventListener";
 import { HasApplication } from "@framework/types/HasApplication";
 import { HasEventListeners } from "@framework/types/HasEventListeners";
 import { normalize } from "@framework/utils/string";
+import { AcceptsMessageRuleScopes } from "@main/decorators/AcceptsMessageRuleScopes";
 import { Invite, Snowflake, spoiler } from "discord.js";
 import ModerationRuleHandlerContract, {
-    MessageRuleContext,
-    RuleExecResult
+    MessageRuleScope,
+    RuleExecResult,
+    type ModerationRuleContext
 } from "../contracts/ModerationRuleHandlerContract";
 
 // FIXME: This class is not complete and is only a placeholder for the actual implementation.
 
-type MessageContext<T> = MessageRuleContext<"message", { type: T }>;
+type MessageContext<T> = ModerationRuleContext<"message", { type: T }>;
 
 class ModerationRuleHandler
     extends HasApplication
@@ -24,12 +26,12 @@ class ModerationRuleHandler
     >();
 
     private preconditionForInviteCaches(guild: Snowflake) {
-        const config =
-            this.application.getServiceByName("configManager").config[guild]?.rule_moderation;
+        const config = this.application.service("configManager").config[guild]?.rule_moderation;
 
         return config?.enabled && config.rules.some(r => r.type === "anti_invite");
     }
 
+    // FIXME: Use a service for invite tracking.
     @GatewayEventListener("inviteCreate")
     public async onInviteCreate(invite: Invite) {
         if (!invite.guild || !this.preconditionForInviteCaches(invite.guild.id)) {
@@ -70,7 +72,8 @@ class ModerationRuleHandler
         handler();
     }
 
-    public domain_filter(context: MessageRuleContext<"message", { type: "domain_filter" }>) {
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
+    public domain_filter(context: ModerationRuleContext<"message", { type: "domain_filter" }>) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
         const content = message.content.toLowerCase();
@@ -145,7 +148,10 @@ class ModerationRuleHandler
         };
     }
 
-    public mime_type_filter(context: MessageRuleContext<"message", { type: "mime_type_filter" }>) {
+    @AcceptsMessageRuleScopes(MessageRuleScope.Attachments)
+    public mime_type_filter(
+        context: ModerationRuleContext<"message", { type: "mime_type_filter" }>
+    ) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
         const attachments = message.attachments.filter(a => a.contentType);
@@ -185,6 +191,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Attachments)
     public file_extension_filter(context: MessageContext<"file_extension_filter">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -226,6 +233,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
     public anti_invite(context: MessageContext<"anti_invite">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -283,6 +291,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
     public regex_filter(context: MessageContext<"regex_filter">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -337,6 +346,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
     public async repeated_text_filter(context: MessageContext<"repeated_text_filter">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -350,7 +360,10 @@ class ModerationRuleHandler
                 const repeatedCharsRegex = new RegExp(`(.)\\1{${repeatedChars},}`, "gm");
                 return content.match(repeatedCharsRegex);
             },
-            [repeatedChars]
+            [repeatedChars],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
 
         if (repeatedCharsMatch) {
@@ -392,7 +405,10 @@ class ModerationRuleHandler
                 );
                 return content.match(repeatedWordsRegex);
             },
-            [repeatedWords]
+            [repeatedWords],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
 
         if (repeatedWordsMatch) {
@@ -430,6 +446,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
     public mass_mention_filter(context: MessageContext<"mass_mention_filter">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -477,6 +494,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Attachments)
     private async checkImageFilter(
         contents: (string | null | undefined)[],
         context: MessageContext<"image_filter">,
@@ -487,12 +505,18 @@ class ModerationRuleHandler
         const tokens = await cache.withDeps(
             "automod.image_filter.tokens",
             () => rule.tokens.map(t => t.toLowerCase()),
-            [rule.tokens]
+            [rule.tokens],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
         const words = await cache.withDeps(
             "automod.image_filter.words",
             () => rule.words.map(w => w.toLowerCase()),
-            [rule.words]
+            [rule.words],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
 
         const { word, token } = this.checkWordsAndTokens(contents, words, tokens, textWords);
@@ -556,6 +580,7 @@ class ModerationRuleHandler
         return {};
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Attachments)
     public async image_filter(context: MessageContext<"image_filter">) {
         const { message } = context;
         const { attachments, embeds } = message;
@@ -604,7 +629,7 @@ class ModerationRuleHandler
         for (const url of urls) {
             const {
                 data: { text: actualText, words: textWords }
-            } = await this.application.getServiceByName("imageRecognitionService").recognize(url);
+            } = await this.application.service("imageRecognitionService").recognize(url);
             const text = actualText.toLowerCase();
             const result = await this.checkImageFilter(
                 [text],
@@ -622,6 +647,7 @@ class ModerationRuleHandler
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Embed)
     public async embed_filter(context: MessageContext<"embed_filter">) {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -629,12 +655,18 @@ class ModerationRuleHandler
         const tokens = await cache.withDeps(
             "automod.rules.embed_filter.tokens",
             () => rule.tokens.map(t => t.toLowerCase()),
-            [rule.tokens]
+            [rule.tokens],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
         const words = await cache.withDeps(
             "automod.rules.embed_filter.words",
             () => rule.words.map(w => w.toLowerCase()),
-            [rule.words]
+            [rule.words],
+            {
+                ttl: 10 * 60 * 1_000
+            }
         );
 
         for (const embed of embeds) {
@@ -681,21 +713,22 @@ class ModerationRuleHandler
     }
 
     // TODO
-    public EXPERIMENTAL_url_crawl(_context: MessageRuleContext) {
+    public EXPERIMENTAL_url_crawl(_context: ModerationRuleContext) {
         return {
             matched: false
         };
     }
 
     // TODO
-    public EXPERIMENTAL_nsfw_filter(_context: MessageRuleContext) {
+    public EXPERIMENTAL_nsfw_filter(_context: ModerationRuleContext) {
         return {
             matched: false
         };
     }
 
+    @AcceptsMessageRuleScopes(MessageRuleScope.Content)
     public async word_filter(
-        context: MessageRuleContext<"message", { type: "word_filter" }>
+        context: ModerationRuleContext<"message", { type: "word_filter" }>
     ): Promise<RuleExecResult> {
         const { message, rule } = context;
         const invert = rule.mode === "invert";
@@ -705,7 +738,10 @@ class ModerationRuleHandler
             const tokens = await cache.withDeps(
                 "automod.moderation_rules.word_filter.tokens",
                 () => rule.tokens.map(t => t.toLowerCase()),
-                [rule.tokens]
+                [rule.tokens],
+                {
+                    ttl: 10 * 60 * 1_000
+                }
             );
             const token = tokens.find(t => content.includes(t));
 
@@ -740,7 +776,10 @@ class ModerationRuleHandler
             const words = await cache.withDeps(
                 "automod.moderation_rules.word_filter.words",
                 () => rule.words.map(w => w.toLowerCase()),
-                [rule.words]
+                [rule.words],
+                {
+                    ttl: 10 * 60 * 1_000
+                }
             );
             const contentSplitted = content.split(/\s+/);
             const word = words.find(w => contentSplitted.includes(w));

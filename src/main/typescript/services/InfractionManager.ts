@@ -20,6 +20,7 @@
 import CommandAbortedError from "@framework/commands/CommandAbortedError";
 import { Inject } from "@framework/container/Inject";
 import Duration from "@framework/datetime/Duration";
+import APIErrors from "@framework/errors/APIErrors";
 import { Name } from "@framework/services/Name";
 import { Service } from "@framework/services/Service";
 import { emoji } from "@framework/utils/emoji";
@@ -27,10 +28,11 @@ import { fetchMember, fetchUser } from "@framework/utils/entities";
 import { isDiscordAPIError } from "@framework/utils/errors";
 import { also } from "@framework/utils/utils";
 import MassUnbanQueue from "@main/queues/MassUnbanQueue";
+import { LogEventType } from "@main/schemas/LoggingSchema";
 import type AuditLoggingService from "@main/services/AuditLoggingService";
-import { LogEventType } from "@main/types/LoggingSchema";
 import { Infraction, InfractionDeliveryStatus, InfractionType, PrismaClient } from "@prisma/client";
-import { formatDistanceToNowStrict } from "date-fns";
+import { AsciiTable3 } from "ascii-table3";
+import { formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import {
     APIEmbed,
     Awaitable,
@@ -38,6 +40,8 @@ import {
     ChannelType,
     Collection,
     Colors,
+    DiscordAPIError,
+    Guild,
     GuildMember,
     Message,
     MessageCreateOptions,
@@ -59,7 +63,7 @@ import InfractionChannelDeleteQueue from "../queues/InfractionChannelDeleteQueue
 import RoleQueue from "../queues/RoleQueue";
 import UnbanQueue from "../queues/UnbanQueue";
 import UnmuteQueue from "../queues/UnmuteQueue";
-import { GuildConfig } from "../types/GuildConfigSchema";
+import { GuildConfig } from "../schemas/GuildConfigSchema";
 import { userInfo } from "../utils/embed";
 import ConfigurationManager from "./ConfigurationManager";
 import QueueService from "./QueueService";
@@ -81,7 +85,8 @@ class InfractionManager extends Service {
         [InfractionType.TIMEOUT]: "timed out",
         [InfractionType.TIMEOUT_REMOVE]: "removed timeout",
         [InfractionType.ROLE]: "modified roles",
-        [InfractionType.MOD_MESSAGE]: "sent a moderator message"
+        [InfractionType.MOD_MESSAGE]: "sent a moderator message",
+        [InfractionType.SHOT]: "given a shot"
     };
 
     @Inject()
@@ -92,6 +97,20 @@ class InfractionManager extends Service {
 
     @Inject("auditLoggingService")
     private readonly auditLoggingService!: AuditLoggingService;
+
+    private createError<E extends boolean>(result: InfractionCreateResult<E>) {
+        const clone = { ...result };
+
+        if (clone.status === "failed" && clone.errorType === "api_error") {
+            clone.errorDescription ??= APIErrors.translateToMessage(clone.code);
+
+            if (clone.errorDescription !== "An unknown error has occurred") {
+                clone.errorDescription = `Error: ${clone.errorDescription}`;
+            }
+        }
+
+        return clone;
+    }
 
     public processReason(guildId: Snowflake, reason: string | undefined, abortOnNotFound = true) {
         if (!reason?.length) {
@@ -262,7 +281,7 @@ class InfractionManager extends Service {
             }
 
             await this.application
-                .getServiceByName("queueService")
+                .service("queueService")
                 .create(InfractionChannelDeleteQueue, {
                     data: {
                         channelId: channel.id,
@@ -768,6 +787,118 @@ class InfractionManager extends Service {
         };
     }
 
+    public async createShot<E extends boolean>(
+        payload: CreateShotPayload<E>
+    ): Promise<InfractionCreateResult<E>> {
+        const {
+            moderator,
+            user,
+            reason,
+            guildId,
+            generateOverviewEmbed,
+            transformNotificationEmbed,
+            notify = true
+        } = payload;
+
+        const infraction: Infraction = {
+            id: Math.round(Math.random() * 5000),
+            guildId,
+            moderatorId: moderator.id,
+            userId: user.id,
+            reason: this.processReason(guildId, reason),
+            type: InfractionType.SHOT,
+            deliveryStatus: InfractionDeliveryStatus.NOT_DELIVERED,
+            createdAt: new Date(),
+            queueId: null,
+            updatedAt: new Date(),
+            expiresAt: null,
+            metadata: null
+        };
+
+        if (notify) {
+            const status = await this.notify(user, infraction, transformNotificationEmbed);
+            infraction.deliveryStatus =
+                status === "notified"
+                    ? InfractionDeliveryStatus.SUCCESS
+                    : status === "fallback"
+                      ? InfractionDeliveryStatus.FALLBACK
+                      : InfractionDeliveryStatus.FAILED;
+        }
+
+        return {
+            status: "success",
+            infraction,
+            overviewEmbed: (generateOverviewEmbed
+                ? this.createOverviewEmbed(infraction, user, moderator)
+                : undefined) as E extends true ? APIEmbed : undefined
+        };
+    }
+
+    public async createFakeBan<E extends boolean>(
+        payload: CreateBanPayload<E>
+    ): Promise<InfractionCreateResult<E>> {
+        const guild = this.getGuild(payload.guildId);
+
+        if (!guild) {
+            return {
+                status: "failed",
+                infraction: null,
+                overviewEmbed: null,
+                code: 0
+            };
+        }
+
+        const {
+            moderator,
+            user,
+            reason,
+            guildId,
+            generateOverviewEmbed,
+            transformNotificationEmbed,
+            notify = true,
+            duration,
+            deletionTimeframe
+        } = payload;
+
+        const infraction: Infraction = {
+            id: Math.round(Math.random() * 5000),
+            guildId,
+            moderatorId: moderator.id,
+            userId: user.id,
+            reason: this.processReason(guildId, reason),
+            type: InfractionType.BAN,
+            deliveryStatus: InfractionDeliveryStatus.NOT_DELIVERED,
+            createdAt: new Date(),
+            expiresAt: duration?.fromNow() ?? null,
+            metadata: {
+                deletionTimeframe: deletionTimeframe?.fromNowMilliseconds(),
+                duration: duration?.fromNowMilliseconds()
+            },
+            queueId: 0,
+            updatedAt: new Date()
+        };
+
+        if (notify) {
+            const status = await this.notify(user, infraction, transformNotificationEmbed);
+            infraction.deliveryStatus =
+                status === "notified"
+                    ? InfractionDeliveryStatus.SUCCESS
+                    : status === "fallback"
+                      ? InfractionDeliveryStatus.FALLBACK
+                      : InfractionDeliveryStatus.FAILED;
+        }
+
+        return {
+            status: "success",
+            infraction,
+            overviewEmbed: (generateOverviewEmbed
+                ? this.createOverviewEmbed(infraction, user, moderator, {
+                      duration: payload.duration
+                  })
+                : undefined) as E extends true ? APIEmbed : undefined
+        };
+    }
+
     public async createBan<E extends boolean>(
         payload: CreateBanPayload<E>
     ): Promise<InfractionCreateResult<E>> {
@@ -777,7 +908,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -808,12 +940,26 @@ class InfractionManager extends Service {
         });
 
         try {
-            await guild.bans.create(user, {
-                reason: `${moderator.username} - ${infraction.reason ?? "No reason provided"}`,
-                deleteMessageSeconds: payload.deletionTimeframe
-                    ? payload.deletionTimeframe.toSeconds("floor")
-                    : undefined
-            });
+            try {
+                await guild.bans.create(user, {
+                    reason: `${moderator.username} - ${infraction.reason ?? "No reason provided"}`,
+                    deleteMessageSeconds: payload.deletionTimeframe
+                        ? payload.deletionTimeframe.toSeconds("floor")
+                        : undefined
+                });
+            } catch (error) {
+                if (isDiscordAPIError(error)) {
+                    return this.createError({
+                        status: "failed",
+                        infraction: null,
+                        overviewEmbed: null,
+                        errorType: "api_error",
+                        code: +error.code
+                    });
+                }
+
+                throw error;
+            }
 
             await this.queueService.bulkCancel(UnbanQueue, queue => {
                 return queue.data.userId === user.id && queue.data.guildId === guild.id;
@@ -838,7 +984,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -874,7 +1021,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -896,20 +1044,22 @@ class InfractionManager extends Service {
         } catch (error) {
             this.application.logger.error(error);
 
-            if (isDiscordAPIError(error) && error.code === 10026) {
-                return {
+            if (isDiscordAPIError(error)) {
+                return this.createError({
                     status: "failed",
                     infraction: null,
                     overviewEmbed: null,
-                    errorType: "unknown_ban"
-                };
+                    errorType: error.code === 10026 ? "unknown_ban" : "api_Error",
+                    code: +error.code
+                });
             }
 
             return {
                 status: "failed",
                 infraction: null,
                 overviewEmbed: null,
-                errorType: "unban_failed"
+                errorType: "unban_failed",
+                code: 0
             };
         }
 
@@ -939,7 +1089,8 @@ class InfractionManager extends Service {
                 status: "failed",
                 infraction: null,
                 overviewEmbed: null,
-                errorType: "queue_cancel_failed"
+                errorType: "queue_cancel_failed",
+                code: 0
             };
         }
 
@@ -981,7 +1132,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1002,10 +1154,21 @@ class InfractionManager extends Service {
         } catch (error) {
             this.application.logger.error(error);
 
+            if (isDiscordAPIError(error)) {
+                return this.createError({
+                    status: "failed",
+                    infraction: null,
+                    overviewEmbed: null,
+                    errorType: "api_error",
+                    code: +error.code
+                });
+            }
+
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1040,7 +1203,8 @@ class InfractionManager extends Service {
             channel,
             generateOverviewEmbed,
             transformNotificationEmbed,
-            notify = true
+            notify = true,
+            roleTakeout = false
         } = payload;
         let { mode } = payload;
         const guild = this.getGuild(payload.guildId);
@@ -1053,7 +1217,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1066,7 +1231,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "role_not_found",
-                errorDescription: "Muted role not found"
+                errorDescription: "Muted role not found!",
+                code: 0
             };
         }
 
@@ -1078,7 +1244,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "cannot_mute_a_bot",
-                errorDescription: "Cannot mute a bot in timeout mode!"
+                errorDescription: "Cannot mute a bot in timeout mode!",
+                code: 0
             };
         }
 
@@ -1088,7 +1255,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "cannot_moderate",
-                errorDescription: "This member cannot be moderated by me"
+                errorDescription: "This member cannot be moderated by me!",
+                code: 0
             };
         }
 
@@ -1098,7 +1266,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "invalid_duration",
-                errorDescription: "Must provide duration when timing out"
+                errorDescription: "Must provide duration when timing out!",
+                code: 0
             };
         }
 
@@ -1108,7 +1277,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "invalid_duration",
-                errorDescription: "Duration must be less than 28 days when timing out"
+                errorDescription: "Duration must be less than 28 days when timing out!",
+                code: 0
             };
         }
 
@@ -1118,7 +1288,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "cannot_manage",
-                errorDescription: "This member cannot be managed by me"
+                errorDescription: "This member cannot be managed by me!",
+                code: 0
             };
         }
 
@@ -1131,11 +1302,25 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "already_muted",
-                errorDescription: "This member is already muted."
+                errorDescription: "This member is already muted.",
+                code: 0
             };
         }
 
         const reason = this.processReason(guildId, rawReason) ?? rawReason;
+        let rolesTaken = roleTakeout ? member.roles.cache.map(r => r.id) : undefined;
+
+        if (rolesTaken && !member.manageable) {
+            return {
+                status: "failed",
+                infraction: null,
+                overviewEmbed: null,
+                errorType: "cannot_manage",
+                errorDescription:
+                    "This member cannot be managed by me, so I cannot take their roles!",
+                code: 0
+            };
+        }
 
         try {
             if (mode === "timeout" && duration) {
@@ -1148,13 +1333,33 @@ class InfractionManager extends Service {
             } else {
                 throw new Error("Unreachable");
             }
+
+            if (rolesTaken) {
+                try {
+                    await member.roles.set([], `${moderator.username} - ${reason}`);
+                } catch (error) {
+                    this.application.logger.error(error);
+                    rolesTaken = [];
+                }
+            }
         } catch (error) {
             this.application.logger.error(error);
+
+            if (isDiscordAPIError(error)) {
+                return this.createError({
+                    status: "failed",
+                    infraction: null,
+                    overviewEmbed: null,
+                    errorType: "api_error",
+                    code: +error.code
+                });
+            }
 
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1169,12 +1374,15 @@ class InfractionManager extends Service {
             payload: {
                 metadata: {
                     type: role ? "role" : "timeout",
-                    duration: duration?.fromNowMilliseconds()
+                    duration: duration?.fromNowMilliseconds(),
+                    roles_taken: rolesTaken
                 },
                 expiresAt: duration ? duration.fromNow() : undefined
             },
             processReason: false
         });
+
+        await this.recordMute(member, rolesTaken ?? []);
 
         if (clearMessagesCount && channel) {
             await this.createClearMessages({
@@ -1242,7 +1450,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1266,7 +1475,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "permission",
-                errorDescription: "Member is not manageable"
+                errorDescription: "Member is not manageable by me!",
+                code: 0
             };
         }
 
@@ -1276,7 +1486,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "permission",
-                errorDescription: "Member is not moderatable"
+                errorDescription: "Member is not moderatable by me!",
+                code: 0
             };
         }
 
@@ -1286,7 +1497,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "role_not_found",
-                errorDescription: "Muted role not found"
+                errorDescription: "Muted role not found!",
+                code: 0
             };
         }
 
@@ -1299,7 +1511,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "not_muted",
-                errorDescription: "This member is not muted"
+                errorDescription: "This member is not muted!",
+                code: 0
             };
         }
 
@@ -1328,10 +1541,21 @@ class InfractionManager extends Service {
         } catch (error) {
             this.application.logger.error(error);
 
+            if (isDiscordAPIError(error)) {
+                return this.createError({
+                    status: "failed",
+                    infraction: null,
+                    overviewEmbed: null,
+                    errorType: "api_error",
+                    code: +error.code
+                });
+            }
+
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1351,14 +1575,33 @@ class InfractionManager extends Service {
             processReason: false
         });
 
-        this.application.prisma.muteRecord
-            .deleteMany({
-                where: {
-                    memberId: member.id,
-                    guildId: guild.id
-                }
-            })
-            .then();
+        const records = await this.application.prisma.muteRecord.findMany({
+            where: {
+                memberId: member.id,
+                guildId: guild.id
+            }
+        });
+
+        let roleRestoreSuccess = true;
+
+        if (records?.length) {
+            try {
+                await member.roles.add(records[0].roles, `${moderator.username} - ${reason}`);
+            } catch (error) {
+                this.application.logger.error(error);
+                roleRestoreSuccess = false;
+            }
+
+            this.application.prisma.muteRecord
+                .deleteMany({
+                    where: {
+                        id: {
+                            in: records.map(r => r.id)
+                        }
+                    }
+                })
+                .then();
+        }
 
         this.auditLoggingService
             .emitLogEvent(guildId, LogEventType.MemberMuteRemove, {
@@ -1374,34 +1617,31 @@ class InfractionManager extends Service {
             status: "success",
             infraction,
             overviewEmbed: (generateOverviewEmbed
-                ? this.createOverviewEmbed(infraction, member.user, moderator)
+                ? also(this.createOverviewEmbed(infraction, member.user, moderator), embed => {
+                      if (!roleRestoreSuccess) {
+                          embed.fields.push({
+                              name: "Role Restoration",
+                              value: "Failed to restore roles"
+                          });
+                      }
+                  })
                 : undefined) as E extends true ? APIEmbed : undefined
         };
     }
 
-    public async recordMuteIfNeeded(member: GuildMember) {
-        const config = this.configManager.config[member.guild.id]?.muting;
-        const role = config?.role;
-
-        if (!role) {
-            return;
-        }
-
-        const existing = await this.application.prisma.muteRecord.findFirst({
+    public async recordMute(member: GuildMember, roles: Snowflake[]) {
+        await this.application.prisma.muteRecord.deleteMany({
             where: {
                 memberId: member.id,
                 guildId: member.guild.id
             }
         });
 
-        if (existing) {
-            return;
-        }
-
         await this.application.prisma.muteRecord.create({
             data: {
                 memberId: member.id,
-                guildId: member.guild.id
+                guildId: member.guild.id,
+                roles
             }
         });
     }
@@ -1437,7 +1677,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1460,7 +1701,8 @@ class InfractionManager extends Service {
                 infraction: null,
                 overviewEmbed: null,
                 errorType: "permission",
-                errorDescription: "Member is not manageable"
+                errorDescription: "Member is not manageable by me!",
+                code: 0
             };
         }
 
@@ -1475,10 +1717,21 @@ class InfractionManager extends Service {
         } catch (error) {
             this.application.logger.error(error);
 
+            if (isDiscordAPIError(error)) {
+                return this.createError({
+                    status: "failed",
+                    infraction: null,
+                    overviewEmbed: null,
+                    errorType: "api_error",
+                    code: +error.code
+                });
+            }
+
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1589,7 +1842,8 @@ class InfractionManager extends Service {
         if (!guild) {
             return {
                 status: "failed",
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1643,9 +1897,22 @@ class InfractionManager extends Service {
         } catch (error) {
             this.application.logger.error(error);
 
+            if (isDiscordAPIError(error)) {
+                const code = +error.code;
+
+                return {
+                    status: "failed",
+                    overviewEmbed: null,
+                    errorType: "api_error",
+                    code,
+                    errorDescription: APIErrors.translateToMessage(code)
+                };
+            }
+
             return {
                 status: "failed",
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1680,7 +1947,8 @@ class InfractionManager extends Service {
 
         return {
             status: "success",
-            count: finalCount
+            count: finalCount,
+            infraction
         };
     }
 
@@ -1703,7 +1971,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1754,7 +2023,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1795,7 +2065,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
     }
@@ -1818,7 +2089,8 @@ class InfractionManager extends Service {
             return {
                 status: "failed",
                 infraction: null,
-                overviewEmbed: null
+                overviewEmbed: null,
+                code: 0
             };
         }
 
@@ -1865,11 +2137,11 @@ class InfractionManager extends Service {
                 value: infraction.reason ?? italic("No reason provided")
             },
             {
-                name: "User",
+                name: infraction.type === InfractionType.SHOT ? "Patient" : "User",
                 value: userInfo(user)
             },
             {
-                name: "Moderator",
+                name: infraction.type === InfractionType.SHOT ? "💉 Doctor" : "Moderator",
                 value: userInfo(moderator)
             }
         ];
@@ -1916,7 +2188,9 @@ class InfractionManager extends Service {
             fields,
             timestamp: new Date().toISOString(),
             color:
-                actionDoneName.startsWith("un") || actionDoneName === "bean"
+                actionDoneName.startsWith("un") ||
+                infraction.type === InfractionType.BEAN ||
+                infraction.type === InfractionType.SHOT
                     ? Colors.Green
                     : Colors.Red
         } satisfies APIEmbed;
@@ -1929,12 +2203,9 @@ class InfractionManager extends Service {
             guildId,
             deletionTimeframe,
             duration,
-            onBanFail,
-            onBanSuccess,
-            onInvalidUser,
             onMassBanComplete,
             onMassBanStart,
-            onBanAttempt
+            onError
         } = payload;
         let { reason } = payload;
 
@@ -1948,58 +2219,78 @@ class InfractionManager extends Service {
             };
         }
 
+        if (userResolvables.length > 200) {
+            return {
+                status: "failed",
+                errorType: "too_many_users"
+            };
+        }
+
         await onMassBanStart?.();
 
-        const users: User[] = [];
-        const userIds: Snowflake[] = [];
+        const bannedUsers: Snowflake[] = [];
+        const failedUsers: Snowflake[] = [];
+        const allUsers = userResolvables.map(resolvable =>
+            typeof resolvable === "string" ? resolvable : resolvable.id
+        );
         const prismaInfractionCreatePayload: InfractionCreatePrismaPayload[] = [];
 
-        await Promise.all(
-            userResolvables.map(async resolvable => {
-                await onBanAttempt?.(typeof resolvable === "string" ? resolvable : resolvable.id);
-
-                const user =
-                    typeof resolvable === "string"
-                        ? await fetchUser(this.client, resolvable)
-                        : resolvable;
-
-                if (!user) {
-                    await onInvalidUser?.(
-                        typeof resolvable === "string" ? resolvable : resolvable.id
-                    );
-                    return;
+        try {
+            const response = (await this.client.rest.post(
+                `/guilds/${encodeURIComponent(guild.id)}/bulk-ban`,
+                {
+                    reason: `${moderator.username} - ${reason ?? "No reason provided"}`,
+                    body: {
+                        user_ids: allUsers,
+                        delete_message_seconds: deletionTimeframe?.toSeconds("floor")
+                    }
                 }
+            )) as {
+                banned_users: Snowflake[];
+                failed_users: Snowflake[];
+            };
 
-                users.push(user);
-                userIds.push(user.id);
+            console.log(response);
 
-                try {
-                    await guild.bans.create(user, {
-                        reason: `${moderator.username} - ${reason ?? "No reason provided"}`,
-                        deleteMessageSeconds: deletionTimeframe?.toMilliseconds()
-                    });
+            bannedUsers.push(...response.banned_users);
+            failedUsers.push(...response.failed_users);
+        } catch (error) {
+            this.application.logger.error("Bulk ban error", error);
 
-                    await onBanSuccess?.(user);
+            if (error instanceof DiscordAPIError && error.code === 500000) {
+                onError?.("failed_to_ban");
+                onMassBanComplete?.([], allUsers, allUsers, "failed_to_ban");
 
-                    prismaInfractionCreatePayload.push({
-                        guildId,
-                        moderatorId: moderator.id,
-                        type: InfractionType.MASSBAN,
-                        userId: user.id,
-                        reason,
-                        expiresAt: duration?.fromNow(),
-                        metadata: {
-                            deletionTimeframe: deletionTimeframe?.fromNowMilliseconds(),
-                            duration: duration?.fromNowMilliseconds()
-                        },
-                        deliveryStatus: InfractionDeliveryStatus.NOT_DELIVERED
-                    });
-                } catch (error) {
-                    this.application.logger.error(error);
-                    await onBanFail?.(user);
-                }
-            })
-        );
+                return {
+                    status: "failed",
+                    errorType: "failed_to_ban"
+                };
+            }
+
+            onError?.("bulk_ban_failed");
+            onMassBanComplete?.([], allUsers, allUsers, "bulk_ban_failed");
+
+            return {
+                status: "failed",
+                errorType: "bulk_ban_failed"
+            };
+        }
+
+        for (const userId of bannedUsers) {
+            prismaInfractionCreatePayload.push({
+                guildId,
+                moderatorId: moderator.id,
+                type: InfractionType.MASSBAN,
+                userId,
+                reason,
+                expiresAt: duration?.fromNow(),
+                metadata: {
+                    deletionTimeframe: deletionTimeframe?.fromNowMilliseconds(),
+                    duration: duration?.fromNowMilliseconds()
+                },
+                deliveryStatus: InfractionDeliveryStatus.NOT_DELIVERED
+            });
+        }
 
         if (prismaInfractionCreatePayload.length > 0) {
             this.application.prisma.infraction
@@ -2014,7 +2305,7 @@ class InfractionManager extends Service {
                 guild,
                 moderator,
                 reason,
-                users,
+                users: bannedUsers,
                 deletionTimeframe,
                 duration
             })
@@ -2024,14 +2315,14 @@ class InfractionManager extends Service {
             this.queueService.create(MassUnbanQueue, {
                 data: {
                     guildId,
-                    userIds
+                    userIds: bannedUsers
                 },
                 guildId,
                 runsAt: duration.fromNow()
             });
         }
 
-        await onMassBanComplete?.(users);
+        await onMassBanComplete?.(bannedUsers, failedUsers, allUsers);
         return {
             status: "success"
         };
@@ -2132,7 +2423,116 @@ class InfractionManager extends Service {
             status: "success"
         };
     }
+
+    public async generatePlainTextExport({
+        columnsToInclude,
+        guild,
+        user,
+        onlyNotified = false
+    }: GeneratePlainTextExportOptions) {
+        const infractions = await this.application.prisma.infraction.findMany({
+            where: {
+                guildId: guild.id,
+                userId: user.id,
+                deliveryStatus: onlyNotified
+                    ? {
+                          not: InfractionDeliveryStatus.NOT_DELIVERED
+                      }
+                    : undefined
+            }
+        });
+
+        const table = new AsciiTable3("Infractions");
+
+        table.setHeading(
+            ...columnsToInclude.map(column => {
+                switch (column) {
+                    case "id":
+                        return "ID";
+                    case "type":
+                        return "Type";
+                    case "userId":
+                        return "User ID";
+                    case "reason":
+                        return "Reason";
+                    case "createdAt":
+                        return "Created At";
+                    case "expiresAt":
+                        return "Expires At";
+                    case "metadata":
+                        return "Metadata";
+                    case "deliveryStatus":
+                        return "Delivery Status";
+                    case "duration":
+                        return "Duration";
+                    case "updatedAt":
+                        return "Updated At";
+                    case "moderatorId":
+                        return "Moderator ID";
+                    default:
+                        throw new Error("Invalid column");
+                }
+            })
+        );
+
+        for (const infraction of infractions) {
+            const row: (string | Date | number | null)[] = columnsToInclude.map(column => {
+                switch (column) {
+                    case "id":
+                        return infraction.id;
+                    case "type":
+                        return this.prettifyInfractionType(infraction.type);
+                    case "userId":
+                        return infraction.userId;
+                    case "moderatorId":
+                        return infraction.moderatorId;
+                    case "reason":
+                        return infraction.reason ?? "None";
+                    case "createdAt":
+                        return infraction.createdAt;
+                    case "updatedAt":
+                        return infraction.updatedAt;
+                    case "expiresAt":
+                        return infraction.expiresAt ?? "Never";
+                    case "metadata":
+                        return JSON.stringify(infraction.metadata);
+                    case "duration":
+                        return infraction.expiresAt
+                            ? formatDistanceStrict(infraction.expiresAt, infraction.createdAt)
+                            : "None";
+                    case "deliveryStatus":
+                        return infraction.deliveryStatus;
+                    default:
+                        throw new Error("Invalid column");
+                }
+            });
+
+            table.addRow(...row);
+        }
+
+        return { output: table.toString(), count: infractions.length };
+    }
 }
+
+export type GeneratePlainTextExportColumn =
+    | "id"
+    | "type"
+    | "duration"
+    | "userId"
+    | "moderatorId"
+    | "reason"
+    | "createdAt"
+    | "expiresAt"
+    | "metadata"
+    | "updatedAt"
+    | "deliveryStatus";
+
+type GeneratePlainTextExportOptions = {
+    guild: Guild;
+    user: User;
+    columnsToInclude: GeneratePlainTextExportColumn[];
+    onlyNotified?: boolean;
+};
 
 type InfractionConfig = NonNullable<GuildConfig["infractions"]>;
 
@@ -2151,6 +2551,10 @@ type CommonOptions<E extends boolean> = {
 };
 
 type CreateBeanPayload<E extends boolean> = CommonOptions<E> & {
+    user: User;
+};
+
+type CreateShotPayload<E extends boolean> = CommonOptions<E> & {
     user: User;
 };
 
@@ -2195,6 +2599,7 @@ type CreateMutePayload<E extends boolean> = CommonOptions<E> & {
     mode?: "role" | "timeout";
     clearMessagesCount?: number;
     channel?: TextChannel;
+    roleTakeout?: boolean;
 };
 
 type CreateUserMassBanPayload = {
@@ -2204,12 +2609,14 @@ type CreateUserMassBanPayload = {
     users: Array<Snowflake | User>;
     deletionTimeframe?: Duration;
     duration?: Duration;
-    onBanAttempt?(userId: Snowflake): Awaitable<void>;
-    onBanSuccess?(user: User): Awaitable<void>;
-    onBanFail?(user: User): Awaitable<void>;
-    onInvalidUser?(userId: Snowflake): Awaitable<void>;
-    onMassBanComplete?(users: User[]): Awaitable<void>;
+    onMassBanComplete?(
+        bannedUsers: Snowflake[],
+        failedUsers: Snowflake[],
+        allUsers: Snowflake[],
+        errorType?: string
+    ): Awaitable<void>;
     onMassBanStart?(): Awaitable<void>;
+    onError?(type: string): Awaitable<void>;
 };
 
 type CreateUserMassKickPayload = {
@@ -2250,12 +2657,14 @@ type InfractionCreateResult<E extends boolean = false> =
           overviewEmbed: null;
           errorType?: string;
           errorDescription?: string;
+          code: number;
       };
 
 type MessageBulkDeleteResult =
     | {
           status: "success";
           count: number;
+          infraction?: Infraction;
       }
     | Omit<Extract<InfractionCreateResult<false>, { status: "failed" }>, "infraction">;
 

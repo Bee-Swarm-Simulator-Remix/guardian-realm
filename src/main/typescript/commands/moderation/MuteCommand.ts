@@ -26,6 +26,8 @@ import { Buildable, Command, CommandMessage } from "@framework/commands/Command"
 import Context from "@framework/commands/Context";
 import { Inject } from "@framework/container/Inject";
 import Duration from "@framework/datetime/Duration";
+import { ArgumentDefaultRules } from "@main/utils/ArgumentDefaultRules";
+import { ErrorMessages } from "@main/utils/ErrorMessages";
 import { GuildMember, PermissionFlagsBits } from "discord.js";
 import { Limits } from "../../constants/Limits";
 import InfractionManager from "../../services/InfractionManager";
@@ -41,9 +43,11 @@ type MuteCommandArgs = {
     names: ["member"],
     types: [GuildMemberArgument<true>],
     optional: false,
-    rules: {
-        "interaction:no_required_check": true
-    },
+    rules: [
+        {
+            "interaction:no_required_check": true
+        }
+    ],
     errorMessages: [
         {
             [ErrorType.EntityNotFound]: "The user you provided was not found.",
@@ -60,8 +64,14 @@ type MuteCommandArgs = {
     errorMessages: [
         {
             [ErrorType.InvalidType]: "Invalid reason or duration provided."
+        },
+        {
+            [ErrorType.InvalidType]: "Invalid reason or duration provided.",
+            [ErrorType.InvalidRange]: `The reason must be between 1 and ${Limits.Reason} characters long.`
         }
     ],
+    rules: [{}, ArgumentDefaultRules.Reason],
+    interactionRuleIndex: 0,
     interactionName: "duration",
     interactionType: DurationArgument
 })
@@ -69,11 +79,9 @@ type MuteCommandArgs = {
     names: ["reason"],
     types: [RestStringArgument],
     optional: true,
-    errorMessages: [
-        {
-            [ErrorType.InvalidType]: "Invalid reason provided."
-        }
-    ],
+    errorMessages: [ErrorMessages.Reason],
+    rules: [ArgumentDefaultRules.Reason],
+    interactionRuleIndex: 0,
     interactionName: "reason",
     interactionType: RestStringArgument
 })
@@ -116,6 +124,14 @@ class MuteCommand extends Command {
                         .setDescription("Whether to notify the user. Defaults to true.")
                         .setRequired(false)
                 )
+                .addBooleanOption(option =>
+                    option
+                        .setName("role_takeout")
+                        .setDescription(
+                            "Whether to take away all roles from the user. Defaults to false."
+                        )
+                        .setRequired(false)
+                )
         ];
     }
 
@@ -140,26 +156,20 @@ class MuteCommand extends Command {
             member,
             generateOverviewEmbed: true,
             duration,
-            notify: !context.isChatInput() || context.options.getBoolean("notify") !== false
+            notify: !context.isChatInput() || context.options.getBoolean("notify") !== false,
+            roleTakeout:
+                context.isChatInput() && context.options.getBoolean("role_takeout") === true
         });
         const { overviewEmbed, status } = result;
 
         if (status === "failed") {
             this.application.logger.debug(result);
 
-            if (result.errorType === "already_muted") {
-                await context.error("This user is already muted.");
-                return;
-            }
-
-            if (result.errorType === "cannot_mute_a_bot") {
-                await context.error("Cannot mute a bot in timeout mode.");
-                return;
-            }
-
             await context.error(
-                "Failed to mute the user. Maybe I don't have the permissions to do so."
+                result.errorDescription ??
+                    "Failed to mute the user. Maybe I don't have the permissions to do so."
             );
+
             return;
         }
 
